@@ -48,6 +48,10 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    environment:
+      # nginx lauscht im Container auf 443; der nach aussen sichtbare Port muss
+      # bekannt sein, damit die Weiterleitung von 80 nicht ins Leere zeigt.
+      PUBLIC_HTTPS_PORT: ${HTTPS_PORT:-443}
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"

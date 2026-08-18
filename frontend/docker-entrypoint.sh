@@ -8,6 +8,16 @@ KEY=/certs/key.pem
 HOSTNAME_FILE=/certs/.hostname
 CONF=/etc/nginx/conf.d/default.conf
 
+# Der nach aussen sichtbare HTTPS-Port. nginx lauscht im Container immer auf
+# 443, das Port-Mapping liegt ausserhalb -- ohne diesen Hinweis wuerde der
+# Redirect von 80 auf einen Port zeigen, auf dem nichts horcht.
+PUBLIC_HTTPS_PORT="${PUBLIC_HTTPS_PORT:-443}"
+if [ "$PUBLIC_HTTPS_PORT" = "443" ]; then
+  REDIRECT_HOST='$host'
+else
+  REDIRECT_HOST="\$host:$PUBLIC_HTTPS_PORT"
+fi
+
 # Ohne gesetzten Hostnamen faengt nginx alle Namen ab.
 SERVER_NAME="_"
 if [ -f "$HOSTNAME_FILE" ]; then
@@ -65,7 +75,7 @@ if [ -f "$CERT" ] && [ -f "$KEY" ]; then
     echo "server {"
     echo "    listen 80;"
     echo "    server_name $SERVER_NAME;"
-    echo '    return 301 https://$host$request_uri;'
+    echo "    return 301 https://${REDIRECT_HOST}\$request_uri;"
     echo "}"
     echo ""
     echo "server {"
