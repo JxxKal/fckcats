@@ -1,0 +1,31 @@
+# Laufzeitdaten — enthalten personenbezogene Daten (Zeitnachweise, Personalnummern,
+# Krankheitstage). Gehoeren niemals ins Repository.
+data/
+certs/
+*.pdf
+*.xlsx
+
+# Ausnahme: das synthetische Test-PDF ist frei erfunden und wird gebraucht.
+!api/tests/fixtures/*.pdf
+
+# Konfiguration mit Secrets
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store

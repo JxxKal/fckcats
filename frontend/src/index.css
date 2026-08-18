@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-cats-bg text-cats-text font-sans text-ui;
+  }
+}
+
+@layer components {
+  /* Panel im Stil der CATS-Oberflaeche: Titelleiste plus umrandete Flaeche */
+  .panel        { @apply border border-cats-border bg-cats-panel; }
+  .panel-head   { @apply bg-cats-header border-b border-cats-border px-3 py-1.5
+                         font-bold text-brand-darker; }
+  .panel-body   { @apply p-3; }
+
+  /* Datenfelder dicktengleich, wie im Original */
+  .field        { @apply font-mono bg-cats-field border border-cats-border px-2 py-1
+                         focus:outline-none focus:ring-1 focus:ring-brand; }
+  .field-key    { @apply field bg-cats-fieldkey; }
+  .label        { @apply text-cats-muted; }
+
+  .btn          { @apply px-3 py-1.5 border border-cats-border bg-gradient-to-b
+                         from-white to-cats-rowalt hover:to-cats-rowhover
+                         active:translate-y-px disabled:opacity-50
+                         disabled:cursor-not-allowed; }
+  .btn-primary  { @apply btn from-brand to-brand-dark text-white border-brand-dark
+                         hover:to-brand-darker; }
+  .btn-danger   { @apply btn from-brand-red to-brand-red text-white border-brand-red
+                         hover:brightness-95; }
+
+  .table-cats           { @apply w-full border-collapse; }
+  .table-cats thead th  { @apply bg-cats-colhead border border-cats-border px-2 py-1
+                                 text-left font-bold text-brand-darker whitespace-nowrap; }
+  .table-cats tbody td  { @apply border border-cats-border px-2 py-1 align-top; }
+  .table-cats tbody tr:nth-child(even) { @apply bg-cats-rowalt; }
+  .table-cats tbody tr:hover           { @apply bg-cats-rowhover; }
+  .num                  { @apply font-mono text-right tabular-nums; }
+}

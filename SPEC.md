@@ -1,0 +1,269 @@
+# Spezifikation — fckcats
+
+Webapp als Docker-Compose-Stack. Nimmt Zeitnachweis-PDFs entgegen, validiert die
+geleisteten Arbeitsstunden und erzeugt daraus eine SAP-CATS-Mass-Upload-XLSX, in
+der die Stunden auf die WBS-Elemente des Users verteilt sind.
+
+> Alle Beispieldaten in diesem Dokument sind synthetisch.
+
+---
+
+## 1. Fundament
+
+Das Basement (SAML, TLS, Hostname) ist aus einem bestehenden Projekt übernommen
+und hier auf den Bedarf reduziert.
+
+| Baustein | Anpassung |
+|---|---|
+| SAML 2.0 SP (Login, ACS, SP-Metadata, SLO) | IdP-Config in `system_config`, Attribut-Mapping konfigurierbar |
+| TLS-Verwaltung (Upload PEM + PFX, Self-Signed, ACME-Konfig) | unverändert |
+| Hostname → nginx `server_name`, 443-Listener, HTTP→HTTPS-Redirect | unverändert |
+| JWT-Ausgabe, `require_admin`-Dependency | unverändert |
+| Frontend-Gerüst (React 18 + Vite + Tailwind) | Seiten neu |
+
+### Stack
+
+```
+nginx (80/443)  →  api (FastAPI)  →  postgres
+   │                    │
+   └─ React SPA         ├─ Volume /data   PDFs + generierte XLSX
+                        └─ Volume /certs  cert.pem, key.pem, .hostname, .mode
+```
+
+### Auth
+
+- **Identität = SAML-`username`** (Attribut-Mapping konfigurierbar, Default `uid`,
+  Fallback NameID). Dieser Wert ist der Workspace-Schlüssel; jeder User sieht
+  ausschließlich eigene Daten.
+- **Lokaler Admin-Fallback** (`source='local'`). Ohne ihn gäbe es ein
+  Henne-Ei-Problem: SAML lässt sich erst konfigurieren, wenn man eingeloggt ist.
+  Erster Start legt einen Admin an, Passwort aus `.env`, Wechsel bei Erstlogin erzwungen.
+- Rollen: `admin` (TLS, Hostname, SAML, User) und `user` (nur eigener Workspace).
+
+---
+
+## 2. PDF-Import
+
+### Erkanntes Format
+
+Extraktion per `pdftotext -layout` (kein OCR nötig). Relevanter Block:
+
+```
+Tag        von     bis     Std.    Sollz   Verfall  GLZ    Mehrz   Prod
+01 MI      08:00   16:30    8,50    7,50             0,50   0,00    8,00
+04 SA  Frei laut AZP
+17 FR  Urlaub     08:30   16:00    7,50    7,50             0,00   0,00    0,00
+```
+
+- **Kopf:** `00123456 Erika Mustermann` → Personalnummer + Name (Abgleich gegen Config).
+- **`Monat: Juli - 2026`** → liefert Monat und Jahr für die Tagesnummern.
+- **Grund-Feld:** freier Text zwischen Tagesnummer und `von`.
+- Dezimaltrennzeichen ist das Komma, negative Werte haben ein **nachgestelltes** Minus (`0,94-`).
+
+### Buchungsbasis: Spalte `Prod.`
+
+`Std.` ist die Brutto-Anwesenheit **inklusive Pause**, `Prod.` die Nettoarbeitszeit.
+Die Differenz ist der gesetzliche Pausenabzug (30 min, ab 9 h Arbeitszeit 45 min):
+
+```
+01 MI   08:00–16:30   Std. 8,50   Prod. 8,00    → 0,50 Pause
+08 MI   06:45–18:15   Std. 11,50  Prod. 10,75   → 0,75 Pause
+```
+
+Nur die Summe der `Prod.`-Spalte trifft die im Zeitnachweis ausgewiesenen
+„Produktivstunden Monat" exakt. Buchungsbasis ist daher `Prod.`.
+
+### Ausschlussliste
+
+Ein Tag ist **nicht** buchbar, wenn das Grund-Feld einem dieser Muster entspricht
+(case-insensitiv, `*` = Präfix-Match):
+
+```
+Frei laut AZP · Urlaub · AU · AU ohne Attest · AU mit Attest
+Arbeitsunfähig* · Reisezeit · Sonderurlaub · Zeitausgleich*
+```
+
+Kritisch: Bei `Urlaub` und `AU …` steht trotzdem `7,50` in Std./Sollz. Ohne diese
+Liste würden Abwesenheitstage als Projektzeit gebucht.
+
+### Unbekannte Gründe → Klärfall
+
+Steht im Grund-Feld ein Text, der weder leer noch auf der Ausschlussliste ist
+(z. B. `Dienstreise`, `Fortbildung`, `Feiertag`, `Betriebsversammlung`), wird der
+Tag als **Klärfall** markiert. Der User entscheidet einmalig „buchen" oder
+„ausschließen"; die Entscheidung wird pro User gespeichert und künftig automatisch
+angewendet (einsehbar und änderbar in der Config).
+
+### Fehlende Buchungen → Klärfall
+
+Ein Werktag ist ein Klärfall, wenn **kein** Grund eingetragen ist **und** eines gilt:
+
+- `Prod.` fehlt oder ist 0
+- `von` oder `bis` fehlt (Kommen/Gehen vergessen)
+
+Der User bekommt pro Fall die Wahl: **Sollzeit übernehmen**, **eigenen Wert
+eintragen** oder **Tag verwerfen**. Manuell ergänzte Stunden werden als `manual`
+markiert und im UI ausgewiesen.
+
+### Ergebnis: validierte Tagesliste
+
+`(user, datum) → stunden, quelle {pdf|manual}, grund_text, pdf_id`
+
+`(user, datum)` ist eindeutig. Ein erneuter Import desselben Zeitraums überschreibt
+(siehe §5). Überlappende PDFs sind damit unkritisch.
+
+---
+
+## 3. CATS-Config (pro User, dauerhaft)
+
+- **Personalnummer** — z. B. `00123456`. Wird beim PDF-Import gegen den Kopf geprüft;
+  Abweichung → Warnung.
+- **WBS-Arbeitsvorrat** — Liste aus WBS-Element + Gewichtung in %.
+  Schema-Validierung gegen die bekannten Formen:
+  `DEO1111-NP/PJ00-O51.0000` (mit Bindestrich-Segment) und
+  `DEO5555000/PQ00-A02.0000` (ohne). Freitext bleibt erlaubt, unbekannte Formen
+  werden markiert.
+- **Summe muss exakt 100 %** sein — Speichern wird sonst abgelehnt.
+- **Plausibilitätswarnung beim Speichern:** Die App rechnet gegen eine typische
+  Arbeitswoche (Default 38 h) vor, welche Gewichtungen unter die Mindestbuchung von
+  1 h fallen, und nennt die betroffenen Elemente samt nötiger Mindestgewichtung.
+  Bei 37 h Wochenarbeitszeit ist ein Element mit 2 % (0,74 h) nicht sinnvoll
+  buchbar; ab ca. 3 % geht es auf.
+- **Entscheidungen zu unbekannten Grund-Texten** (siehe §2) — Liste, editierbar.
+- Config ist **versioniert**; jede Berechnung merkt sich die verwendete Version.
+
+---
+
+## 4. Verteilalgorithmus
+
+**Zwei Regeln mit klarer Rangfolge:**
+
+1. **Hart:** Die Tagessumme der erzeugten Zeilen entspricht exakt der validierten
+   Stundenzahl des Tages. Wird nie gerundet, gekürzt oder geschummelt.
+2. **Weich:** Die Gewichtung soll je ISO-Woche (Mo–So) möglichst gut getroffen
+   werden. Exakt geht nicht, weil die Tagesstunden krumm sind.
+
+**Slice-Präferenz:** möglichst grobe Blöcke — Leiter `4 h → 2 h → 1 h`, der krumme
+Rest des Tages landet in einem Slice (`4,00 + 2,00 + 0,82`).
+
+### Ablauf je Woche
+
+1. Wochensoll je WBS-Element = `Wochenstunden × Gewicht` **plus Übertrag aus der Vorwoche**.
+2. Tage in zufälliger Reihenfolge durchgehen. Je Tag, solange Restzeit > 0:
+   - Element mit dem größten offenen Restbedarf wählen (Gleichstand zufällig).
+   - Größten Block der Leiter nehmen, der in die Restzeit passt und den Bedarf
+     nicht stark überschießt.
+   - Würde ein Krümel < 1 h übrigbleiben, der nicht dem krummen Tagesanteil
+     entspricht, nimmt der aktuelle Slice den ganzen Rest.
+   - Ein WBS-Element höchstens **einmal pro Tag**, höchstens **4 Slices pro Tag**;
+     der letzte Slice nimmt garantiert den Rest → Tagessumme stimmt
+     konstruktionsbedingt.
+3. Restabweichung je Element geht als **Übertrag in die Folgewoche**. Damit gleichen
+   sich Randwochen über den Zeitraum wieder aus.
+
+### Auswahl der besten Variante
+
+Die Verteilung ist zufällig, entsprechend schwankt ihre Qualität je nach Seed
+erheblich. Deshalb rechnet die App standardmäßig 200 Varianten durch und nimmt
+die wochenscharf beste — bewertet über die Summe der quadrierten
+Wochenabweichungen, damit eine unvermeidbar grobe Randwoche nicht die
+Optimierung der übrigen Wochen blockiert. Das kostet bei einem Monat wenige
+hundert Millisekunden, bei einem halben Jahr unter einer Sekunde. Der
+Gewinner-Seed wird gespeichert und reproduziert das Ergebnis exakt.
+
+### Verifiziert
+
+Implementierung in `api/src/distribution.py`, Tests in `api/tests/`. Ergebnis
+bei Gewichtung 40/25/15/15/5 über einen Zeitraum mit zwei Randwochen (2 Tage, 5 Tage, 1 Tag):
+
+| Soll | KW10 (2 Tage) | KW11 (5 Tage) | KW12 (1 Tag) | **Gesamt** |
+|---|---|---|---|---|
+| 40 % | 39,4 % | 37,7 % | 53,0 % | **40,1 %** |
+| 25 % | 23,7 % | 23,9 % | 26,5 % | **24,2 %** |
+| 15 % | 21,1 % | 17,6 % | 0,0 % | **16,0 %** |
+| 15 % | 15,8 % | 15,4 % | 13,2 % | **15,2 %** |
+| 5 % | 0,0 % | 5,4 % | 7,3 % | **4,4 %** |
+
+Alle Tagessummen exakt, Gesamtsumme exakt. In der vollen Woche liegt die Abweichung
+unter 2,6 Prozentpunkten; Randwochen mit 1–2 Tagen sind naturgemäß grob, werden aber
+über den Übertrag eingefangen.
+
+**Teilwochen** (Monatsanfang/-ende, Datenrand) werden „best effort" verteilt und
+sofort exportierbar — nicht zurückgehalten. Die Abweichung wird im UI je Woche
+ausgewiesen.
+
+**Reproduzierbarkeit:** Der Zufallsseed wird je Berechnungslauf persistiert. Eine
+einmal berechnete Verteilung ist eingefroren; ein erneuter Export desselben
+Zeitraums liefert identische Zeilen.
+
+---
+
+## 5. Zieltabelle, Historie, Export
+
+### Persistente Zieltabelle im Workspace
+
+`(user, datum, wbs_element) → stunden, berechnungslauf, status {offen|exportiert}`
+
+Sie ist der eigentliche Bestand, nicht die XLSX. Die XLSX ist nur eine Sicht darauf.
+
+### Export
+
+- User wählt einen Zeitraum → XLSX wird erzeugt und heruntergeladen.
+- Enthaltene Zeilen werden als `exportiert` markiert, mit Zeitstempel und Datei-ID.
+- Die erzeugte Datei bleibt im Workspace abrufbar (Historie, erneuter Download).
+- Default-Vorauswahl beim Export: alle Zeilen mit Status `offen`.
+
+### Re-Import eines korrigierten PDFs
+
+Betroffene Tage werden neu berechnet. Sind darunter bereits **exportierte** Zeilen,
+zeigt die App vor dem Überschreiben eine Diff-Ansicht (alt/neu je Tag) und verlangt
+eine ausdrückliche Bestätigung. Der Ersatz wird protokolliert; die alte Fassung
+bleibt einsehbar.
+
+---
+
+## 6. XLSX-Zielformat
+
+Exakt nach dem CATS-Mass-Upload-Muster:
+
+- **Ein Sheet**, Spalten A–J:
+  `WORKDATE | EMPLOYEE | WBS_ELEMENT | ABS_ATT_TYPE | REC_ORDER | ACTIVITY | WAGETYPE | CATSHOURS | ZZICTPC | SHORTTEXT`
+- **Die Kopfzeile steht dreimal** (Zeile 1, 2, 3). Daten ab **Zeile 4**.
+- `WORKDATE` — echtes Excel-Datum, Zahlenformat `numFmtId=14`.
+- `EMPLOYEE` — Personalnummer als **Zahl ohne führende Nullen** (`00123456` → `123456`).
+- `WBS_ELEMENT` — Text, unverändert aus der Config.
+- `CATSHOURS` — Zahl, 2 Nachkommastellen.
+- `ABS_ATT_TYPE`, `REC_ORDER`, `ACTIVITY`, `WAGETYPE`, `ZZICTPC`, `SHORTTEXT` — **bleiben leer**.
+
+Eine Tageszeile der validierten Liste wird zu 1–4 XLSX-Zeilen, je nach Anzahl der
+zugeteilten WBS-Elemente.
+
+---
+
+## 7. UI-Fluss
+
+```
+Login (SAML oder lokal)
+  └─ Dashboard: offene Stunden, letzter Export, Warnungen
+  └─ CATS-Config: Personalnummer, WBS-Vorrat + Gewichtung, Grund-Entscheidungen
+  └─ Import: PDF hochladen
+       └─ Vorschau: erkannte Tage, ausgeschlossene Tage mit Grund
+       └─ Klärfälle: unbekannte Gründe + fehlende Buchungen abarbeiten
+       └─ Übernehmen
+  └─ Zieltabelle: nach Woche gruppiert, Soll/Ist-Gewichtung je Woche,
+       Status offen/exportiert, Zeitraum wählen → XLSX
+  └─ Historie: erzeugte Exporte, erneuter Download
+  └─ [admin] Einstellungen: TLS/Zertifikat, Hostname, SAML, User
+```
+
+---
+
+## 8. Gesetzte Annahmen
+
+1. Lokaler Admin-Fallback neben SAML (nötig wegen Henne-Ei bei der SAML-Konfiguration).
+2. Woche = ISO-Woche Mo–So.
+3. Höchstens 4 Slices pro Tag, jedes WBS-Element höchstens einmal pro Tag.
+4. Übertrag der Wochenabweichung in die Folgewoche ist aktiv.
+5. PDFs und erzeugte XLSX werden dauerhaft im Workspace aufbewahrt.
+6. WBS-Elemente haben keine Gültigkeitszeiträume.
+7. Speicher: Postgres + Docker-Volume. Kein Objektspeicher.

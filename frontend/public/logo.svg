@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="FCK CATS">
+  <title>FCK CATS</title>
+  <defs>
+    <!-- Schraege rechte Kante: x(y) = 990 - 0.2744 * (y - 100) -->
+    <clipPath id="badge">
+      <polygon points="90,100 990,100 765,920 90,920"/>
+    </clipPath>
+  </defs>
+
+  <!-- Grundflaeche -->
+  <polygon points="90,100 990,100 765,920 90,920" fill="#4880B4"/>
+
+  <!-- Dunklere Innenkante rechts, gibt dem Schild Tiefe -->
+  <polygon points="955,100 990,100 765,920 730,920" fill="#2D5A80"/>
+
+  <g clip-path="url(#badge)">
+    <!-- Rote Baender oben und unten -->
+    <polygon points="90,140 979,140 961,207 90,207" fill="#D64C45"/>
+    <polygon points="90,812 766,812 748,879 90,879" fill="#D64C45"/>
+
+    <!-- Schrift: Blockletter, wie im Original -->
+    <g fill="#111111" font-family="'Arial Black','Arial Bold',Arial,Helvetica,sans-serif"
+       font-weight="900" font-size="270" letter-spacing="4">
+      <text x="140" y="470">FCK</text>
+      <text x="140" y="800">CATS</text>
+    </g>
+  </g>
+
+  <!-- Gelbes Band: laeuft links ueber den Rand hinaus und liegt ueber der Schrift -->
+  <polygon points="0,478 886,478 859,578 0,578" fill="#F9B01E"/>
+</svg>
