@@ -358,6 +358,61 @@ Compose liest `.env` aus dem Verzeichnis, in dem der Befehl läuft.
 **Port ist belegt** — `Bind for 0.0.0.0:80 failed: port is already allocated`.
 Belegte Ports zeigt `ss -ltn`; alternative Ports über `.env` setzen.
 
+**`all predefined address pools have been fully subnetted`** — der Docker-Daemon
+hat keine Adressbereiche mehr für ein weiteres Bridge-Netz. Nicht der Stack ist
+schuld, sondern die Zahl der Netze auf dem Host: ab Werk vergibt Docker aus
+`172.17.0.0/12` Blöcke der Größe /16, also nur 16 Stück.
+
+Was belegt ist:
+
+```bash
+docker network ls
+docker network inspect $(docker network ls -q) \
+    --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}}{{end}}'
+```
+
+Drei Auswege, in der Reihenfolge des geringsten Eingriffs:
+
+*1. Aufräumen.* Meist liegen Netze verwaister Projekte herum:
+
+```bash
+docker network prune
+docker compose up -d
+```
+
+*2. Eigenes Subnetz für diesen Stack.* Umgeht die Pool-Vergabe ganz und kommt
+ohne Neustart des Daemons aus. In der `.env`:
+
+```bash
+FCKCATS_SUBNET=172.31.250.0/24
+```
+
+und dann mit der Override-Datei starten:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.subnet.yml up -d
+```
+
+Der Bereich darf sich weder mit dem Firmennetz noch mit einem anderen
+Docker-Netz auf dem Host überschneiden — siehe Ausgabe oben. Weil es eine
+eigene Datei ist, übersteht die Einstellung ein `git pull`.
+
+*3. Den Pool des Daemons vergrößern*, wenn auf dem Host dauerhaft viele Stacks
+laufen. In `/etc/docker/daemon.json`:
+
+```json
+{
+  "default-address-pools": [
+    { "base": "172.17.0.0/12", "size": 24 },
+    { "base": "10.200.0.0/16", "size": 24 }
+  ]
+}
+```
+
+`size: 24` statt der Vorgabe 16 macht aus dem /12 rund 4000 Netze statt 16.
+Danach `systemctl restart docker` — das stoppt kurzzeitig **alle** Container auf
+dem Host, und die Basisbereiche dürfen nicht mit dem Firmennetz kollidieren.
+
 **`api` bleibt unhealthy** — `docker compose logs api`. Meist ist die Datenbank noch
 nicht bereit; der Healthcheck von `postgres` hält `api` zurück, bis sie antwortet.
 Ist ein Proxy gesetzt, prüfe, ob `postgres` in `NO_PROXY` steht — sonst geht die

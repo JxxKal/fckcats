@@ -1,0 +1,26 @@
+# Eigenes Subnetz fuer den Stack.
+#
+# Docker vergibt Bridge-Netze aus festen Adresspools. Sind die aufgebraucht,
+# scheitert jedes weitere Netzwerk mit
+#
+#   failed to create network ...: all predefined address pools have been fully subnetted
+#
+# Diese Datei umgeht das, indem sie dem Stack ein festes Subnetz zuweist,
+# statt eines aus dem Pool anzufordern. Anwendung:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.subnet.yml up -d
+#
+# Das Subnetz kommt aus FCKCATS_SUBNET in der .env und darf sich weder mit dem
+# Firmennetz noch mit einem anderen Docker-Netz auf dem Host ueberschneiden.
+# Belegte Bereiche zeigt:
+#
+#   docker network inspect $(docker network ls -q) --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}}{{end}}'
+
+services: {}
+
+networks:
+  fckcats-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${FCKCATS_SUBNET:?FCKCATS_SUBNET fehlt - siehe .env.example}

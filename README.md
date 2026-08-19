@@ -147,6 +147,10 @@ $EDITOR .env          # SECRET_KEY, DATA_MASTER_KEY und Passwörter setzen
 docker compose up -d
 ```
 
+Meldet Docker beim Start `all predefined address pools have been fully subnetted`,
+sind die Adressbereiche des Daemons aufgebraucht — DEPLOYMENT.md nennt drei Wege
+heraus, darunter ein eigenes Subnetz per `docker-compose.subnet.yml`.
+
 Hinter einem Unternehmensproxy die bereits vorbereiteten Felder `HTTP_PROXY` und
 `HTTPS_PROXY` in der `.env` ausfüllen — sie gelten beim Bauen wie zur Laufzeit.
 Die Dienstnamen in `NO_PROXY` bitte stehen lassen, sonst läuft die
