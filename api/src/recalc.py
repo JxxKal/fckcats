@@ -18,7 +18,7 @@ async def exported_dates(pool: asyncpg.Pool, user_id: int) -> set[date]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT DISTINCT work_date FROM cats_entry "
-            "WHERE user_id = $1 AND export_id IS NOT NULL",
+            "WHERE user_id = $1 AND exported_at IS NOT NULL",
             user_id,
         )
     return {r["work_date"] for r in rows}
@@ -31,7 +31,7 @@ async def archive_entries(
     if not days:
         return
     rows = await conn.fetch(
-        "SELECT work_date, wbs_element, hours, export_id FROM cats_entry "
+        "SELECT work_date, wbs_element, hours, export_id, exported_at FROM cats_entry "
         "WHERE user_id = $1 AND work_date = ANY($2::date[])",
         user_id, days,
     )
@@ -41,13 +41,14 @@ async def archive_entries(
             "wbs_element": r["wbs_element"],
             "hours": float(r["hours"]),
             "export_id": r["export_id"],
+            "exported_at": r["exported_at"].isoformat() if r["exported_at"] else None,
         })
     for day, payload in by_day.items():
         await conn.execute(
             "INSERT INTO entry_history (user_id, work_date, payload, was_exported) "
             "VALUES ($1, $2, $3, $4)",
             user_id, day, payload,
-            any(p["export_id"] is not None for p in payload),
+            any(p["exported_at"] is not None for p in payload),
         )
 
 
@@ -117,13 +118,13 @@ async def recalculate(
             await archive_entries(conn, user_id, days)
             if released:
                 await conn.execute(
-                    "UPDATE cats_entry SET export_id = NULL "
+                    "UPDATE cats_entry SET export_id = NULL, exported_at = NULL "
                     "WHERE user_id = $1 AND work_date = ANY($2::date[])",
                     user_id, sorted(released),
                 )
             await conn.execute(
                 "DELETE FROM cats_entry WHERE user_id = $1 AND work_date = ANY($2::date[]) "
-                "AND export_id IS NULL",
+                "AND exported_at IS NULL",
                 user_id, days,
             )
             await conn.executemany(

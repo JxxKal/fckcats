@@ -100,3 +100,25 @@ export interface SslStatus {
   domains: string[] | null
   hostname: string | null
 }
+
+export interface AdminUser {
+  id: number
+  username: string
+  email: string | null
+  display_name: string | null
+  role: 'admin' | 'user'
+  source: 'local' | 'saml'
+  active: boolean
+  must_change_password: boolean
+  created_at: string
+  last_login: string | null
+  entry_count: number
+  export_count: number
+}
+
+export interface EntryHistoryRecord {
+  work_date: string
+  payload: { wbs_element: string; hours: number; exported_at: string | null }[]
+  was_exported: boolean
+  replaced_at: string
+}

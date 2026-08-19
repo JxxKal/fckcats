@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api'
 import type { SslStatus } from '../types'
+import UserSection from './UserSection'
 
 interface SamlSettings {
   enabled: boolean
@@ -43,8 +44,10 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-4 max-w-3xl">
-      <div className="panel">
+    <div className="space-y-4 max-w-5xl">
+      <UserSection />
+
+      <div className="panel max-w-3xl">
         <div className="panel-head">Hostname</div>
         <div className="panel-body space-y-2">
           <input className="field w-full" value={hostname} placeholder="fckcats.example.org"
@@ -60,7 +63,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="panel">
+      <div className="panel max-w-3xl">
         <div className="panel-head">TLS-Zertifikat</div>
         <div className="panel-body space-y-3">
           {ssl?.active ? (
@@ -148,7 +151,7 @@ export default function SettingsPage() {
       </div>
 
       {saml && (
-        <div className="panel">
+        <div className="panel max-w-3xl">
           <div className="panel-head">SAML Single Sign-on</div>
           <form className="panel-body space-y-2" onSubmit={e => {
             e.preventDefault()

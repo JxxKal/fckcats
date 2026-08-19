@@ -85,6 +85,8 @@ nginx (80/443)  →  api (FastAPI)  →  postgres
   einen beliebigen IdP. Daneben ein lokaler Zugang, ohne den sich SAML nicht
   einrichten ließe.
 - **Workspaces** sind strikt getrennt: jeder sieht ausschließlich eigene Daten.
+- **Benutzerverwaltung** in der Oberfläche: lokale Konten anlegen, Rollen vergeben,
+  Passwörter setzen. SAML-Konten tauchen nach der ersten Anmeldung automatisch auf.
 - **TLS** wird in der Oberfläche verwaltet — PEM- oder PFX-Upload, selbstsigniert
   oder ACME. nginx erzeugt seine Konfiguration beim Start aus Zertifikat und
   Hostname.
@@ -115,8 +117,12 @@ WBS-Arbeitsvorrat eintragen.
    Klärfälle abarbeiten, übernehmen.
 3. **Zieltabelle** — nach Woche gruppiert, mit Soll/Ist-Vergleich je WBS-Element.
    Zeitraum wählen, als XLSX exportieren.
-4. **Historie** — erzeugte Dateien erneut herunterladen oder einen Export
-   zurücknehmen, falls er nicht in SAP angekommen ist.
+4. **Historie** — erzeugte Dateien erneut herunterladen, einen Export zurücknehmen
+   (falls er nicht in SAP angekommen ist) oder die Historie aufräumen. Aufräumen
+   ändert den Buchungsstatus nicht: was einmal gebucht wurde, geht nicht versehentlich
+   ein zweites Mal raus.
+5. **Einstellungen** (Administratoren) — Benutzer anlegen und verwalten, Hostname,
+   TLS-Zertifikat, SAML.
 
 ## Zielformat
 

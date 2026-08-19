@@ -120,7 +120,24 @@ Das Volume `certs` ist in `nginx` schreibgeschützt eingebunden; obige Befehle
 funktionieren dennoch, weil `docker compose cp` am Mount vorbei in den Container
 schreibt. Sauberer ist der Weg über die Oberfläche oder über den `api`-Container.
 
-## 5. SAML einrichten
+## 5. Benutzer verwalten
+
+Unter **Einstellungen → Benutzer**. Die Liste enthält lokale und per SAML angelegte
+Konten nebeneinander, mit Anmeldeart, Rolle, Zugang und dem Umfang des jeweiligen
+Workspaces.
+
+- **Lokales Konto anlegen** — Benutzername, Startpasswort (mindestens 12 Zeichen),
+  optional Anzeigename, E-Mail und Rolle. Das Startpasswort muss beim ersten Login
+  geändert werden.
+- **Passwort setzen** — nur für lokale Konten. Mit der Vorgabe *Wechsel beim nächsten
+  Login erzwingen* kennt danach niemand außer der Person selbst ihr Passwort.
+- **Rolle und Zugang** — direkt in der Tabelle. Der letzte aktive Administrator lässt
+  sich weder herabstufen noch deaktivieren, damit man sich nicht aussperrt.
+
+SAML-Konten erscheinen automatisch nach der ersten Anmeldung. Ihr Kennwort verwaltet
+der Identity Provider; ein Passwortversuch darauf wird abgelehnt.
+
+## 6. SAML einrichten
 
 Unter **Einstellungen → SAML Single Sign-on**:
 
@@ -149,7 +166,7 @@ SSO-Schaltfläche, der lokale Zugang bleibt daneben bestehen.
 Assertions müssen signiert sein. Wenn der IdP zusätzlich das Response-Envelope
 signiert, lässt sich das über `want_messages_signed` erzwingen.
 
-## 6. Betrieb
+## 7. Betrieb
 
 **Status und Logs**
 
@@ -191,7 +208,7 @@ gunzip -c fckcats-2026-08-18.sql.gz | docker compose exec -T postgres psql -U fc
 docker compose down -v
 ```
 
-## 7. Betrieb hinter einem vorgelagerten Proxy
+## 8. Betrieb hinter einem vorgelagerten Proxy
 
 Läuft bereits ein Reverse Proxy auf dem Host, den Stack auf freie Ports legen und
 TLS im vorgelagerten Proxy terminieren:
@@ -206,7 +223,7 @@ Der Proxy muss `Host` und `X-Forwarded-For` weiterreichen. Wichtig für SAML: di
 interne. Die Anwendung leitet Schema und Host für die Assertion-Prüfung aus diesem
 Feld ab, damit Port-Mappings die Signaturprüfung nicht zerlegen.
 
-## 8. Fehlersuche
+## 9. Fehlersuche
 
 **`SECRET_KEY fehlt`** beim Start — `.env` fehlt oder die Variable ist nicht gesetzt.
 Compose liest `.env` aus dem Verzeichnis, in dem der Befehl läuft.

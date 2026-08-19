@@ -32,12 +32,12 @@ async def list_entries(
         params.append(date_to)
         clauses.append(f"e.work_date <= ${len(params)}")
     if only_open:
-        clauses.append("e.export_id IS NULL")
+        clauses.append("e.exported_at IS NULL")
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             f"""
-            SELECT e.work_date, e.wbs_element, e.hours, e.export_id,
+            SELECT e.work_date, e.wbs_element, e.hours, e.export_id, e.exported_at,
                    w.hours AS day_hours, w.source, w.reason_text
             FROM cats_entry e
             LEFT JOIN workday w
@@ -68,7 +68,7 @@ async def list_entries(
         week["per_wbs"][r["wbs_element"]] = round(
             week["per_wbs"].get(r["wbs_element"], 0.0) + hours, 2
         )
-        if r["export_id"] is None:
+        if r["exported_at"] is None:
             week["open_rows"] += 1
         else:
             week["exported_rows"] += 1
@@ -76,8 +76,9 @@ async def list_entries(
             "work_date": r["work_date"].isoformat(),
             "wbs_element": r["wbs_element"],
             "hours": hours,
-            "exported": r["export_id"] is not None,
+            "exported": r["exported_at"] is not None,
             "export_id": r["export_id"],
+            "exported_at": r["exported_at"].isoformat() if r["exported_at"] else None,
             "day_hours": float(r["day_hours"]) if r["day_hours"] is not None else None,
             "day_source": r["source"],
         })
@@ -127,6 +128,26 @@ async def entry_history(
             int(user["sub"]),
         )
     return [dict(r) for r in rows]
+
+
+@router.delete("/history", summary="Aenderungshistorie loeschen")
+async def clear_entry_history(
+    confirm: bool = Query(default=False, description="Muss true sein"),
+    user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> dict:
+    """Leert das Protokoll ersetzter Zeilen.
+
+    Betrifft ausschliesslich das Protokoll -- Zieltabelle, Buchungsstatus und
+    Export-Historie bleiben unberuehrt.
+    """
+    if not confirm:
+        raise HTTPException(400, "Loeschen muss mit confirm=true bestaetigt werden.")
+    async with pool.acquire() as conn:
+        status = await conn.execute(
+            "DELETE FROM entry_history WHERE user_id = $1", int(user["sub"])
+        )
+    return {"deleted": int(status.rsplit(" ", 1)[-1]) if status else 0}
 
 
 @router.get("/workdays", summary="Validierte Tagesliste lesen")

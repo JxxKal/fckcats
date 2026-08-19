@@ -93,12 +93,25 @@ CREATE TABLE IF NOT EXISTS cats_entry (
     wbs_element  TEXT   NOT NULL,
     hours        NUMERIC(6,2) NOT NULL CHECK (hours > 0),
     run_id       BIGINT REFERENCES distribution_run(id) ON DELETE SET NULL,
-    export_id    BIGINT,                     -- gesetzt = exportiert (FK weiter unten)
+    -- Verweis auf den Export. Wird beim Loeschen des Exports genullt.
+    export_id    BIGINT,                     -- FK weiter unten
+    -- Der eigentliche Buchungsstatus. Bewusst NICHT am Fremdschluessel
+    -- haengend: wer die Export-Historie aufraeumt, darf dadurch keine bereits
+    -- in SAP gebuchten Zeilen wieder als offen sehen und doppelt einspielen.
+    exported_at  TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, work_date, wbs_element)
 );
 CREATE INDEX IF NOT EXISTS cats_entry_user_date_idx ON cats_entry (user_id, work_date);
-CREATE INDEX IF NOT EXISTS cats_entry_open_idx ON cats_entry (user_id) WHERE export_id IS NULL;
+
+-- Bestandsdaten aus der Zeit, als der Status nur am Fremdschluessel hing.
+ALTER TABLE cats_entry ADD COLUMN IF NOT EXISTS exported_at TIMESTAMPTZ;
+UPDATE cats_entry SET exported_at = now()
+ WHERE exported_at IS NULL AND export_id IS NOT NULL;
+
+DROP INDEX IF EXISTS cats_entry_open_idx;
+CREATE INDEX IF NOT EXISTS cats_entry_open_idx
+    ON cats_entry (user_id) WHERE exported_at IS NULL;
 
 -- ── Exporte ──────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS export (

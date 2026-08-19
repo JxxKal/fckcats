@@ -38,7 +38,12 @@ nginx (80/443)  →  api (FastAPI)  →  postgres
 - **Lokaler Admin-Fallback** (`source='local'`). Ohne ihn gäbe es ein
   Henne-Ei-Problem: SAML lässt sich erst konfigurieren, wenn man eingeloggt ist.
   Erster Start legt einen Admin an, Passwort aus `.env`, Wechsel bei Erstlogin erzwungen.
-- Rollen: `admin` (TLS, Hostname, SAML, User) und `user` (nur eigener Workspace).
+- Rollen: `admin` (TLS, Hostname, SAML, Benutzer) und `user` (nur eigener Workspace).
+- **Benutzerverwaltung** in den Einstellungen: lokale Konten anlegen, Rolle und Zugang
+  ändern, Passwort setzen. SAML-Konten erscheinen nach der ersten Anmeldung automatisch
+  in derselben Liste; ihr Kennwort verwaltet der Identity Provider, hier lassen sich
+  nur Rolle und Zugang steuern. Der letzte aktive Administrator kann weder herabgestuft
+  noch deaktiviert werden.
 
 ---
 
@@ -202,9 +207,15 @@ Zeitraums liefert identische Zeilen.
 
 ### Persistente Zieltabelle im Workspace
 
-`(user, datum, wbs_element) → stunden, berechnungslauf, status {offen|exportiert}`
+`(user, datum, wbs_element) → stunden, berechnungslauf, exported_at, export_id`
 
 Sie ist der eigentliche Bestand, nicht die XLSX. Die XLSX ist nur eine Sicht darauf.
+
+**Buchungsstatus und Export-Verweis sind bewusst getrennt.** `exported_at` sagt, ob
+eine Zeile bereits nach SAP gegangen ist; `export_id` verweist auf den Datensatz des
+Exports. Hinge der Status am Fremdschlüssel, würde das Aufräumen der Export-Historie
+alle Zeilen wieder auf „offen" setzen — sie kämen in den nächsten Export und wären in
+SAP doppelt gebucht. Ein gelöschter Export nullt daher nur den Verweis.
 
 ### Export
 
@@ -212,6 +223,21 @@ Sie ist der eigentliche Bestand, nicht die XLSX. Die XLSX ist nur eine Sicht dar
 - Enthaltene Zeilen werden als `exportiert` markiert, mit Zeitstempel und Datei-ID.
 - Die erzeugte Datei bleibt im Workspace abrufbar (Historie, erneuter Download).
 - Default-Vorauswahl beim Export: alle Zeilen mit Status `offen`.
+
+### Historie aufräumen
+
+- **Export zurücknehmen** — die Zeilen gelten wieder als offen und werden erneut
+  ausgegeben. Für den Fall, dass die Datei nie in SAP angekommen ist. Eintrag und
+  Datei bleiben.
+- **Export löschen** — Eintrag und Datei verschwinden, der Buchungsstatus bleibt.
+  Reines Aufräumen, ohne Folgen für den nächsten Export.
+- **Gesamte Export-Historie löschen** — wie oben für alle Einträge, wahlweise mit
+  ausdrücklicher Freigabe aller Zeilen (`revoke=true`). Nur dieser eine Weg macht
+  bereits gebuchte Zeiten wieder exportierbar.
+- **Änderungsprotokoll löschen** — leert das Protokoll ersetzter Zeilen. Zieltabelle,
+  Buchungsstatus und Export-Historie bleiben unberührt.
+
+Alle Löschvorgänge verlangen `confirm=true`.
 
 ### Re-Import eines korrigierten PDFs
 
@@ -252,8 +278,12 @@ Login (SAML oder lokal)
        └─ Übernehmen
   └─ Zieltabelle: nach Woche gruppiert, Soll/Ist-Gewichtung je Woche,
        Status offen/exportiert, Zeitraum wählen → XLSX
-  └─ Historie: erzeugte Exporte, erneuter Download
-  └─ [admin] Einstellungen: TLS/Zertifikat, Hostname, SAML, User
+  └─ Historie: erzeugte Exporte (Download, zurücknehmen, löschen)
+       └─ Änderungsprotokoll ersetzter Zeilen, löschbar
+  └─ [admin] Einstellungen
+       └─ Benutzer: lokale anlegen, Rolle, Zugang, Passwort setzen;
+            SAML-Benutzer erscheinen nach ihrer ersten Anmeldung
+       └─ Hostname, TLS-Zertifikat, SAML
 ```
 
 ---

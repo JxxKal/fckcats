@@ -19,6 +19,17 @@ router = APIRouter(prefix="/api/exports", tags=["exports"])
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+def _remove_file(path: str) -> None:
+    """Loescht die erzeugte Datei. Ein fehlendes File ist kein Fehler."""
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        # Der Datenbankeintrag ist schon weg; ein Dateirest darf den Aufruf
+        # nicht scheitern lassen.
+        pass
+
+
 @router.post("", summary="Offene Zeilen eines Zeitraums als XLSX exportieren")
 async def create_export(
     date_from: date = Query(...),
@@ -38,7 +49,7 @@ async def create_export(
     if not cfg_row:
         raise HTTPException(400, "Bitte zuerst die CATS-Config ausfuellen.")
 
-    condition = "" if include_exported else " AND export_id IS NULL"
+    condition = "" if include_exported else " AND exported_at IS NULL"
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             f"""
@@ -82,7 +93,8 @@ async def create_export(
                 "UPDATE export SET stored_path = $1 WHERE id = $2", path, export_id
             )
             await conn.execute(
-                "UPDATE cats_entry SET export_id = $1 WHERE id = ANY($2::bigint[])",
+                "UPDATE cats_entry SET export_id = $1, exported_at = now() "
+                "WHERE id = ANY($2::bigint[])",
                 export_id, [r["id"] for r in rows],
             )
 
@@ -135,14 +147,19 @@ async def download_export(
     )
 
 
-@router.delete("/{export_id}", summary="Export zuruecknehmen")
+def _affected_rows(status: str) -> int:
+    """asyncpg liefert den Kommando-Status, z.B. 'UPDATE 18'."""
+    return int(status.rsplit(" ", 1)[-1]) if status else 0
+
+
+@router.post("/{export_id}/revoke", summary="Export zuruecknehmen")
 async def revoke_export(
     export_id: int,
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     """Setzt die Zeilen wieder auf offen -- fuer den Fall, dass die Datei in SAP
-    nicht angekommen ist. Die Datei selbst bleibt in der Historie liegen."""
+    nicht angekommen ist. Der Eintrag und die Datei bleiben in der Historie."""
     user_id = int(user["sub"])
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -151,9 +168,71 @@ async def revoke_export(
         if not row:
             raise HTTPException(404, "Export nicht gefunden.")
         status = await conn.execute(
-            "UPDATE cats_entry SET export_id = NULL WHERE export_id = $1 AND user_id = $2",
+            "UPDATE cats_entry SET export_id = NULL, exported_at = NULL "
+            "WHERE export_id = $1 AND user_id = $2",
             export_id, user_id,
         )
-    # asyncpg liefert den Kommando-Status, z.B. "UPDATE 18".
-    reopened = int(status.rsplit(" ", 1)[-1]) if status else 0
-    return {"export_id": export_id, "reopened": reopened}
+    return {"export_id": export_id, "reopened": _affected_rows(status)}
+
+
+@router.delete("/{export_id}", summary="Export aus der Historie loeschen")
+async def delete_export(
+    export_id: int,
+    user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> dict:
+    """Entfernt Eintrag und Datei.
+
+    Der Buchungsstatus der Zeilen bleibt erhalten: was einmal in SAP gebucht
+    wurde, darf durch das Aufraeumen der Historie nicht wieder als offen
+    auftauchen und ein zweites Mal eingespielt werden. Nur der Verweis auf den
+    geloeschten Export verschwindet. Wer die Zeilen wirklich zurueckholen will,
+    nimmt den Export vorher zurueck.
+    """
+    user_id = int(user["sub"])
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT stored_path FROM export WHERE id = $1 AND user_id = $2",
+            export_id, user_id,
+        )
+        if not row:
+            raise HTTPException(404, "Export nicht gefunden.")
+        # export_id wird per ON DELETE SET NULL genullt, exported_at bleibt.
+        await conn.execute("DELETE FROM export WHERE id = $1 AND user_id = $2",
+                           export_id, user_id)
+    _remove_file(row["stored_path"])
+    return {"deleted": export_id}
+
+
+@router.delete("", summary="Gesamte Export-Historie loeschen")
+async def delete_all_exports(
+    confirm: bool = Query(default=False, description="Muss true sein"),
+    revoke: bool = Query(
+        default=False,
+        description="Zusaetzlich alle Zeilen wieder auf offen setzen",
+    ),
+    user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> dict:
+    if not confirm:
+        raise HTTPException(400, "Loeschen muss mit confirm=true bestaetigt werden.")
+
+    user_id = int(user["sub"])
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, stored_path FROM export WHERE user_id = $1", user_id
+        )
+        reopened = 0
+        async with conn.transaction():
+            if revoke:
+                status = await conn.execute(
+                    "UPDATE cats_entry SET export_id = NULL, exported_at = NULL "
+                    "WHERE user_id = $1 AND exported_at IS NOT NULL",
+                    user_id,
+                )
+                reopened = _affected_rows(status)
+            await conn.execute("DELETE FROM export WHERE user_id = $1", user_id)
+
+    for r in rows:
+        _remove_file(r["stored_path"])
+    return {"deleted": len(rows), "reopened": reopened}
