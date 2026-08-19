@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { api, ApiError, fmtDate, fmtHours, weekdayOf } from '../api'
 import type { CatsConfig, EntriesResponse, WeekGroup } from '../types'
 
+const FULL_WEEK_DAYS = 5
+
 export default function EntriesPage() {
   const [data, setData] = useState<EntriesResponse | null>(null)
   const [cfg, setCfg] = useState<CatsConfig | null>(null)
@@ -67,10 +69,31 @@ export default function EntriesPage() {
     return el ? el.weight : null
   }
 
+  function projectCapFor(wbs: string): number | null {
+    const p = cfg?.projects?.find(e => e.wbs === wbs)
+    return p ? p.max_hours_per_week : null
+  }
+
+  /** Stunden, die in dieser Woche an Projekte gingen. */
+  function projectHours(week: WeekGroup): number {
+    return Object.entries(week.per_wbs)
+      .filter(([wbs]) => projectCapFor(wbs) !== null)
+      .reduce((s, [, h]) => s + h, 0)
+  }
+
+  /**
+   * Bezugsgröße für die Gewichtung ist der Rest nach den Projekten, nicht die
+   * ganze Woche — sonst sähe jedes gewichtete Element zu klein aus.
+   */
+  function opsBase(week: WeekGroup): number {
+    return Math.max(0, week.hours - projectHours(week))
+  }
+
   function deviation(week: WeekGroup, wbs: string): number | null {
     const target = weightFor(wbs)
-    if (target === null || !week.hours) return null
-    return (week.per_wbs[wbs] ?? 0) / week.hours * 100 - target
+    const base = opsBase(week)
+    if (target === null || base <= 0) return null
+    return (week.per_wbs[wbs] ?? 0) / base * 100 - target
   }
 
   if (!data) return <p className="text-cats-muted">Wird geladen …</p>
@@ -144,23 +167,43 @@ export default function EntriesPage() {
                 <thead>
                   <tr>
                     <th>WBS-Element</th>
+                    <th className="w-24">Art</th>
                     <th className="w-24 text-right">Stunden</th>
                     <th className="w-20 text-right">ist</th>
-                    <th className="w-20 text-right">soll</th>
+                    <th className="w-28 text-right">soll</th>
                     <th className="w-24 text-right">Abweichung</th>
                   </tr>
                 </thead>
                 <tbody>
                   {Object.entries(week.per_wbs).sort().map(([wbs, hours]) => {
+                    const cap = projectCapFor(wbs)
+                    const isProject = cap !== null
                     const target = weightFor(wbs)
                     const dev = deviation(week, wbs)
+                    const base = opsBase(week)
+                    // Projekte werden anteilig zur Wochenlänge gekürzt.
+                    const capThisWeek = cap !== null
+                      ? cap * Math.min(1, week.days / FULL_WEEK_DAYS) : null
                     return (
                       <tr key={wbs}>
                         <td className="font-mono">{wbs}</td>
+                        <td className={isProject ? 'text-brand-dark font-bold' : 'text-cats-muted'}>
+                          {isProject ? 'Projekt' : 'gewichtet'}
+                        </td>
                         <td className="num">{fmtHours(hours)}</td>
-                        <td className="num">{(hours / week.hours * 100).toFixed(1).replace('.', ',')} %</td>
+                        <td className="num">
+                          {isProject
+                            ? `${(hours / week.hours * 100).toFixed(1).replace('.', ',')} %`
+                            : base > 0
+                              ? `${(hours / base * 100).toFixed(1).replace('.', ',')} %`
+                              : '—'}
+                        </td>
                         <td className="num text-cats-muted">
-                          {target !== null ? `${target.toFixed(1).replace('.', ',')} %` : '—'}
+                          {isProject
+                            ? `max ${fmtHours(capThisWeek)} h`
+                            : target !== null
+                              ? `${target.toFixed(1).replace('.', ',')} %`
+                              : '—'}
                         </td>
                         <td className={`num ${dev !== null && Math.abs(dev) > 10 ? 'text-brand-red' : 'text-cats-muted'}`}>
                           {dev !== null ? `${dev > 0 ? '+' : ''}${dev.toFixed(1).replace('.', ',')} pp` : '—'}
@@ -170,6 +213,14 @@ export default function EntriesPage() {
                   })}
                 </tbody>
               </table>
+              {projectHours(week) > 0 && (
+                <p className="text-cats-muted">
+                  Davon {fmtHours(projectHours(week))} h auf Projekte und{' '}
+                  {fmtHours(opsBase(week))} h auf die gewichtete Verteilung — der
+                  Ist-Anteil der gewichteten Elemente bezieht sich auf diese{' '}
+                  {fmtHours(opsBase(week))} h.
+                </p>
+              )}
 
               {open && (
                 <table className="table-cats">

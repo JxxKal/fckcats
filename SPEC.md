@@ -126,12 +126,27 @@ markiert und im UI ausgewiesen.
 
 - **Personalnummer** — z. B. `00123456`. Wird beim PDF-Import gegen den Kopf geprüft;
   Abweichung → Warnung.
-- **WBS-Arbeitsvorrat** — Liste aus WBS-Element + Gewichtung in %.
-  Schema-Validierung gegen die bekannten Formen:
+Der Arbeitsvorrat besteht aus zwei Gruppen:
+
+- **Projekte** — WBS-Element + Obergrenze in Stunden je Woche. Werden zuerst bedient.
+- **Operations oder andere gewichtet verteilte WBS-Elemente** — WBS-Element +
+  Gewichtung in %. Teilen unter sich auf, was die Projekte übrig lassen.
+
+Dazu:
+
+- **Vorrang bei Knappheit** — `projects` oder `operations`, mit einem
+  **Mindestanteil für Operations** in Prozent. Greift nur, wenn die
+  Projekt-Obergrenzen mehr ergeben, als die Woche hergibt.
+- Schema-Validierung gegen die bekannten Formen:
   `DEO1111-NP/PJ00-O51.0000` (mit Bindestrich-Segment) und
   `DEO5555000/PQ00-A02.0000` (ohne). Freitext bleibt erlaubt, unbekannte Formen
   werden markiert.
-- **Summe muss exakt 100 %** sein — Speichern wird sonst abgelehnt.
+- **Die Summe der Gewichtungen muss exakt 100 %** sein — Speichern wird sonst
+  abgelehnt. Sie beziehen sich auf den Rest nach den Projekten, nicht auf die
+  ganze Woche.
+- Ein WBS-Element gehört entweder zu den Projekten oder zu Operations, nie zu beidem.
+- Mindestens ein Element insgesamt ist erforderlich; eine Konfiguration nur aus
+  Projekten oder nur aus gewichteten Elementen ist zulässig.
 - **Plausibilitätswarnung beim Speichern:** Die App rechnet gegen eine typische
   Arbeitswoche (Default 38 h) vor, welche Gewichtungen unter die Mindestbuchung von
   1 h fallen, und nennt die betroffenen Elemente samt nötiger Mindestgewichtung.
@@ -154,9 +169,38 @@ markiert und im UI ausgewiesen.
 **Slice-Präferenz:** möglichst grobe Blöcke — Leiter `4 h → 2 h → 1 h`, der krumme
 Rest des Tages landet in einem Slice (`4,00 + 2,00 + 0,82`).
 
+### Wochenziele: Projekte vor Gewichtung
+
+Vor der Verteilung wird je Woche ausgerechnet, wie viele Stunden jedes WBS-Element
+bekommen soll:
+
+1. **Projekte zuerst.** Die Obergrenze wird anteilig zur Wochenlänge gekürzt:
+   `Obergrenze × Arbeitstage / 5`. Eine Randwoche mit zwei Tagen trägt also 40 % des
+   Projektblocks — sonst würde ein 10-h-Projekt eine 12-h-Woche fast allein füllen.
+2. **Deckel.** Bei Vorrang für Operations dürfen die Projekte höchstens
+   `100 % − Mindestanteil` der Woche belegen. Bei Vorrang für die Projekte gibt es
+   keinen Deckel.
+3. **Überzeichnung.** Übersteigen die Projekte den Deckel, werden sie anteilig im
+   Verhältnis ihrer Obergrenzen gekürzt.
+4. **Rest an Operations.** Was übrig bleibt, verteilt sich nach den Gewichtungen —
+   plus dem Übertrag aus der Vorwoche.
+
+Der Übertrag gilt **nur für Operations**. Bei Projekten ist die Angabe eine
+Obergrenze und kein Soll: eine Woche, in der weniger anfiel, darf die nächste nicht
+aufblähen.
+
+Rechenbeispiel bei 38 h Wochenarbeitszeit, Projekte 10 h und 6 h, Operations 60/40:
+
+| Fall | Projekte | Operations |
+|---|---|---|
+| Volle Woche | 10,00 + 6,00 h | 13,20 + 8,80 h |
+| Randwoche, 2 von 5 Tagen (12,68 h) | 4,00 h | 5,21 + 3,47 h |
+| Überzeichnet (3 × 15 h), Vorrang Projekte | 12,67 h je Projekt | 0 h |
+| Überzeichnet, Vorrang Operations mit 30 % | 8,87 h je Projekt | 6,84 + 4,56 h |
+
 ### Ablauf je Woche
 
-1. Wochensoll je WBS-Element = `Wochenstunden × Gewicht` **plus Übertrag aus der Vorwoche**.
+1. Wochenziele je WBS-Element wie oben berechnet.
 2. Tage in zufälliger Reihenfolge durchgehen. Je Tag, solange Restzeit > 0:
    - Element mit dem größten offenen Restbedarf wählen (Gleichstand zufällig).
    - Größten Block der Leiter nehmen, der in die Restzeit passt und den Bedarf
@@ -166,8 +210,8 @@ Rest des Tages landet in einem Slice (`4,00 + 2,00 + 0,82`).
    - Ein WBS-Element höchstens **einmal pro Tag**, höchstens **4 Slices pro Tag**;
      der letzte Slice nimmt garantiert den Rest → Tagessumme stimmt
      konstruktionsbedingt.
-3. Restabweichung je Element geht als **Übertrag in die Folgewoche**. Damit gleichen
-   sich Randwochen über den Zeitraum wieder aus.
+3. Restabweichung der Operations-Elemente geht als **Übertrag in die Folgewoche**.
+   Damit gleichen sich Randwochen über den Zeitraum wieder aus.
 
 ### Auswahl der besten Variante
 
@@ -347,7 +391,8 @@ zugeteilten WBS-Elemente.
 ```
 Login (SAML oder lokal)
   └─ Dashboard: offene Stunden, letzter Export, Warnungen
-  └─ CATS-Config: Personalnummer, WBS-Vorrat + Gewichtung, Grund-Entscheidungen
+  └─ CATS-Config: Personalnummer, Projekte mit Wochen-Obergrenze,
+       gewichtete Elemente, Vorrang bei Knappheit, Grund-Entscheidungen
   └─ Import: PDF hochladen
        └─ Vorschau: erkannte Tage, ausgeschlossene Tage mit Grund
        └─ Klärfälle: unbekannte Gründe + fehlende Buchungen abarbeiten

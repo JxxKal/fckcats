@@ -17,7 +17,7 @@ from database import get_pool
 from deps import app_config, get_current_user
 from distribution import plan_range_best_of
 from keys import get_dek
-from routers.cats import load_config, weights_as_fractions
+from routers.cats import load_config, plan_from_config
 from storage_mode import storage_mode_of
 from xlsx_export import ExportRow, build_bytes, suggest_filename
 
@@ -146,13 +146,13 @@ async def direct_export(
     if not cfg_row:
         raise HTTPException(400, "Bitte zuerst die CATS-Config ausfuellen.")
 
-    weights = weights_as_fractions(cfg_row)
-    if not weights:
+    plan = plan_from_config(cfg_row)
+    if not plan.ops and not plan.projects:
         raise HTTPException(400, "Die CATS-Config enthaelt keine WBS-Elemente.")
 
     days = sorted(((d.work_date, round(d.hours, 2)) for d in body.days))
     seed = body.seed if body.seed is not None else random.randrange(1, 2 ** 31 - 200)
-    allocations, _, _ = plan_range_best_of(days, weights, seed)
+    allocations, _, _ = plan_range_best_of(days, plan, seed)
 
     personnel_number = cfg_row.get("personnel_number", "")
     payload = build_bytes([

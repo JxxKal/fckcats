@@ -44,9 +44,11 @@ Falle, in die eine naive Auswertung tappt.
 oder ein Tag mit vergessener Kommen-/Gehen-Buchung wird nicht stillschweigend gebucht,
 sondern als Klärfall vorgelegt. Getroffene Entscheidungen merkt sich die App.
 
-**Verteilen.** Die Stunden werden je ISO-Woche nach der hinterlegten Gewichtung auf die
-WBS-Elemente verteilt, in möglichst groben Blöcken (4 h vor 2 h vor 1 h). Jede Woche
-sieht anders aus, die Tagessummen stimmen immer.
+**Verteilen.** Die Stunden werden je ISO-Woche auf die WBS-Elemente verteilt, in
+möglichst groben Blöcken (4 h vor 2 h vor 1 h). Dabei gibt es zwei Gruppen:
+**Projekte** mit einer festen Obergrenze in Stunden je Woche werden zuerst bedient,
+**Operations** teilen sich nach Gewichtung, was übrig bleibt. Jede Woche sieht anders
+aus, die Tagessummen stimmen immer.
 
 **Buchhaltung führen.** Die Zieltabelle liegt in der Datenbank, nicht in der Datei.
 Exportierte Zeilen sind markiert, ein korrigiertes PDF für einen bereits gebuchten
@@ -55,12 +57,20 @@ der Historie einsehbar.
 
 ![Zieltabelle mit Soll/Ist je Woche](docs/screenshots/03-zieltabelle.png)
 
+![CATS-Config mit Projekten und gewichteten Elementen](docs/screenshots/05-cats-config.png)
+
 ## Verteilalgorithmus
 
 Zwei Regeln mit klarer Rangfolge:
 
 1. **Hart** — die Tagessumme entspricht exakt der validierten Stundenzahl.
 2. **Weich** — die Gewichtung soll je Woche möglichst gut getroffen werden.
+
+**Projekte gehen vor.** Ihre Obergrenze wird anteilig zur Wochenlänge gekürzt (zwei
+von fünf Arbeitstagen → 40 %), erst der Rest geht in die gewichtete Verteilung.
+Ergeben die Obergrenzen mehr, als die Woche hergibt, entscheidet ein Schalter, wer
+nachgibt: entweder teilen die Projekte die Woche unter sich auf, oder den gewichteten
+Elementen bleibt ein festgelegter Mindestanteil.
 
 Exakt kann die Wochengewichtung nicht aufgehen, weil die Tagesstunden krumm sind
 (7,83 h lässt sich nicht sauber in 40/25/15/15/5 zerlegen). Die App rechnet deshalb
@@ -144,9 +154,9 @@ WBS-Arbeitsvorrat eintragen.
 
 ## Ablauf im Alltag
 
-1. **CATS-Config** — Personalnummer und WBS-Elemente mit Gewichtung (Summe 100 %).
-   Die App warnt, wenn eine Gewichtung zu klein ist, um in einer typischen Woche
-   überhaupt gebucht werden zu können.
+1. **CATS-Config** — Personalnummer, Projekte mit Wochen-Obergrenze und gewichtete
+   Elemente (Summe 100 %). Die App rechnet vor, wie viele Stunden je Element in einer
+   vollen Woche anfallen, und warnt, wenn etwas unter die Mindestbuchung rutscht.
 2. **Import** — Zeitnachweis-PDF hochladen. Die Vorschau zeigt jeden Tag mit Status.
    Klärfälle abarbeiten, übernehmen.
 3. **Zieltabelle** — nach Woche gruppiert, mit Soll/Ist-Vergleich je WBS-Element.

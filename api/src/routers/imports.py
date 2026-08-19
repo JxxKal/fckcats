@@ -19,7 +19,7 @@ from deps import app_config, get_current_user
 from keys import get_dek
 from pdf_parser import parse_text, pdf_to_text
 from recalc import exported_dates, recalculate
-from routers.cats import load_config, weights_as_fractions
+from routers.cats import load_config, plan_from_config
 from storage_mode import storage_mode_of
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
@@ -264,15 +264,14 @@ async def commit_upload(
             )
     if new_rules != dict(cfg_row.get("reason_rules", {})):
         await store.update_config_payload(pool, cfg_row["id"], dek, {
-            "personnel_number": cfg_row.get("personnel_number", ""),
-            "wbs_elements": cfg_row.get("wbs_elements", []),
+            **{k: v for k, v in cfg_row.items() if k not in ("id", "version")},
             "reason_rules": new_rules,
         })
 
     # Die Freigabe der exportierten Tage passiert in recalculate, damit sie
     # erst nach dem Archivieren greift.
     result = await recalculate(
-        pool, user_id, dek, weights_as_fractions(cfg_row), cfg_row["version"],
+        pool, user_id, dek, plan_from_config(cfg_row), cfg_row["version"],
         release_dates=[date.fromisoformat(c) for c in conflicts],
     )
     return {

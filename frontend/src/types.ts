@@ -13,10 +13,20 @@ export interface WbsElement {
   weight: number
 }
 
+export interface ProjectElement {
+  wbs: string
+  max_hours_per_week: number
+}
+
 export interface CatsConfig {
   configured: boolean
   personnel_number: string
+  /** Operations: teilen sich nach Gewicht, was die Projekte übrig lassen. */
   wbs_elements: WbsElement[]
+  /** Projekte: feste Obergrenze je Woche, werden zuerst bedient. */
+  projects: ProjectElement[]
+  priority: 'projects' | 'operations'
+  operations_min_pct: number
   reason_rules: Record<string, 'book' | 'exclude'>
   version: number
   typical_week_hours: number

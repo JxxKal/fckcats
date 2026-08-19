@@ -12,7 +12,7 @@ from datetime import date
 import asyncpg
 
 import store
-from distribution import DEFAULT_CANDIDATES, plan_range_best_of
+from distribution import DEFAULT_CANDIDATES, Plan, plan_range_best_of
 
 
 async def exported_dates(pool: asyncpg.Pool, user_id: int) -> set[date]:
@@ -29,7 +29,7 @@ async def recalculate(
     pool: asyncpg.Pool,
     user_id: int,
     dek: bytes,
-    weights: list[tuple[str, float]],
+    plan: Plan,
     config_version: int,
     seed: int | None = None,
     release_dates: list[date] | None = None,
@@ -44,7 +44,7 @@ async def recalculate(
     erst archiviert und danach freigegeben, damit in der Historie erhalten
     bleibt, dass diese Zeilen schon in SAP gebucht waren.
     """
-    if not weights:
+    if not plan.ops and not plan.projects:
         return {"rows": 0, "days": 0, "weeks": []}
 
     released = set(release_dates or ())
@@ -64,11 +64,11 @@ async def recalculate(
         # Ausdruecklich angeforderter Seed: exakt diesen verwenden, damit sich
         # ein frueheres Ergebnis reproduzieren laesst.
         allocations, reports, seed = plan_range_best_of(
-            open_days, weights, seed, candidates=1
+            open_days, plan, seed, candidates=1
         )
     else:
         allocations, reports, seed = plan_range_best_of(
-            open_days, weights, random.randrange(1, 2**31 - DEFAULT_CANDIDATES),
+            open_days, plan, random.randrange(1, 2**31 - DEFAULT_CANDIDATES),
         )
 
     async with pool.acquire() as conn:
@@ -117,6 +117,10 @@ async def recalculate(
                 "per_wbs": r.per_wbs,
                 "target_per_wbs": r.target_per_wbs,
                 "max_deviation_pp": round(r.max_deviation_pp, 1),
+                "project_hours": r.project_hours,
+                "ops_hours": r.ops_hours,
+                "projects_capped": r.projects_capped,
+                "ops_starved": r.ops_starved,
             }
             for r in reports
         ],

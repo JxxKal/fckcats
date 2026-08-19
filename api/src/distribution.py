@@ -9,16 +9,30 @@ Zwei Regeln mit klarer Rangfolge (SPEC.md §4):
 
 Die Slices werden bewusst grob gehalten (4 h vor 2 h vor 1 h); der krumme
 Tagesrest landet in einem einzigen Slice.
+
+Zwei Arten von WBS-Elementen teilen sich die Woche:
+
+  * **Projekte** tragen eine Obergrenze in Stunden je Woche. Sie werden zuerst
+    bedient und anteilig zur Wochenlaenge gekuerzt -- eine Woche mit zwei von
+    fuenf Arbeitstagen erhaelt 40 Prozent der Obergrenze.
+  * **Operations** tragen Prozente und teilen unter sich auf, was nach den
+    Projekten uebrig bleibt.
+
+Welche Seite bei Knappheit nachgibt, entscheidet der Vorrang: bei Vorrang fuer
+die Projekte kann Operations leer ausgehen, bei Vorrang fuer Operations bleibt
+ihm ein Mindestanteil der Woche erhalten.
 """
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 LADDER = [4.0, 2.0, 1.0]
 MAX_SLICES_PER_DAY = 4
 MIN_SLICE_HOURS = 1.0
+# Bezugsgroesse fuer die anteilige Kuerzung der Projektstunden.
+FULL_WEEK_DAYS = 5
 # Wie viele Zufallsvarianten durchgerechnet werden, bevor die beste gewinnt.
 DEFAULT_CANDIDATES = 200
 
@@ -31,6 +45,22 @@ class Allocation:
 
 
 @dataclass
+class Plan:
+    """Was in einer Woche verteilt werden soll.
+
+    ops       [(wbs, gewicht 0..1)] -- teilen sich, was nach den Projekten bleibt
+    projects  [(wbs, obergrenze in stunden je voller Woche)]
+    priority  'projects' oder 'operations'
+    ops_min_pct  Mindestanteil der Woche fuer Operations; greift nur bei
+                 Vorrang fuer Operations
+    """
+    ops: list[tuple[str, float]] = field(default_factory=list)
+    projects: list[tuple[str, float]] = field(default_factory=list)
+    priority: str = "projects"
+    ops_min_pct: float = 0.0
+
+
+@dataclass
 class WeekReport:
     """Soll/Ist je Woche -- wird im UI angezeigt, damit sichtbar ist, wo es klemmt."""
     iso_year: int
@@ -39,6 +69,10 @@ class WeekReport:
     hours: float
     per_wbs: dict[str, float]
     target_per_wbs: dict[str, float]
+    project_hours: float = 0.0        # tatsaechlich an Projekte vergeben
+    ops_hours: float = 0.0            # tatsaechlich an Operations vergeben
+    projects_capped: bool = False     # Obergrenzen mussten gekuerzt werden
+    ops_starved: bool = False         # Operations ging leer aus
 
     @property
     def max_deviation_pp(self) -> float:
@@ -51,27 +85,82 @@ class WeekReport:
         )
 
 
+def compute_targets(
+    hours_total: float,
+    day_count: int,
+    plan: Plan,
+    carry: dict[str, float] | None = None,
+) -> tuple[dict[str, float], dict]:
+    """Rechnet die Wochenziele je WBS-Element aus.
+
+    Zuerst die Projekte: ihre Obergrenze wird anteilig zur Wochenlaenge
+    gekuerzt, damit eine Randwoche mit zwei Arbeitstagen nicht denselben
+    Projektblock traegt wie eine volle. Was danach uebrig bleibt, teilen die
+    Operations-Elemente nach ihren Gewichten unter sich auf.
+
+    Der Uebertrag aus der Vorwoche gilt nur fuer Operations. Bei den Projekten
+    ist die Angabe eine Obergrenze und kein Soll -- eine Woche, in der weniger
+    anfiel, darf die naechste nicht aufblaehen.
+    """
+    carry = carry or {}
+    meta = {"project_hours": 0.0, "ops_hours": 0.0,
+            "projects_capped": False, "ops_starved": False}
+    if hours_total <= 0:
+        return {}, meta
+
+    # Anteil dieser Woche an einer vollen Arbeitswoche.
+    share = min(1.0, day_count / FULL_WEEK_DAYS) if day_count else 0.0
+    wanted = {wbs: max_hours * share for wbs, max_hours in plan.projects}
+    total_wanted = sum(wanted.values())
+
+    # Wie viel duerfen die Projekte hoechstens belegen?
+    if plan.ops and plan.priority == "operations" and plan.ops_min_pct > 0:
+        budget = hours_total * (1.0 - plan.ops_min_pct / 100.0)
+    else:
+        budget = hours_total
+    # Ohne Operations-Elemente duerfen die Projekte die ganze Woche fuellen.
+    if not plan.ops:
+        budget = hours_total
+
+    if total_wanted > budget + 0.005 and total_wanted > 0:
+        # Anteilig kuerzen, im Verhaeltnis der Obergrenzen zueinander.
+        factor = budget / total_wanted
+        wanted = {k: v * factor for k, v in wanted.items()}
+        meta["projects_capped"] = True
+
+    targets = {k: round(v, 4) for k, v in wanted.items() if v > 0.005}
+    project_hours = sum(targets.values())
+    rest = round(hours_total - project_hours, 4)
+    meta["project_hours"] = round(project_hours, 2)
+
+    if plan.ops and rest > 0.005:
+        weight_sum = sum(w for _, w in plan.ops) or 1.0
+        for wbs, weight in plan.ops:
+            targets[wbs] = round(rest * weight / weight_sum + carry.get(wbs, 0.0), 4)
+        meta["ops_hours"] = round(rest, 2)
+    elif plan.ops:
+        meta["ops_starved"] = True
+
+    return targets, meta
+
+
 def plan_week(
     days: list[tuple[date, float]],
-    weights: list[tuple[str, float]],
-    carry: dict[str, float],
+    targets: dict[str, float],
     rng: random.Random,
-) -> tuple[list[Allocation], float, dict[str, float]]:
-    """Verteilt die Stunden einer ISO-Woche.
+) -> tuple[list[Allocation], float]:
+    """Verteilt die Stunden einer ISO-Woche auf vorgegebene Wochenziele.
 
     days    [(datum, stunden)] der buchbaren Tage dieser Woche
-    weights [(wbs_element, gewicht 0..1)], Summe der Gewichte == 1.0
-    carry   Uebertrag aus der Vorwoche je WBS-Element in Stunden (kann negativ sein)
+    targets {wbs_element: sollstunden fuer diese Woche}
 
-    Rueckgabe: (zeilen, wochenstunden, uebertrag_fuer_die_folgewoche)
+    Rueckgabe: (zeilen, wochenstunden)
     """
     hours_total = round(sum(h for _, h in days), 2)
-    if hours_total <= 0 or not weights:
-        return [], 0.0, dict(carry)
+    if hours_total <= 0 or not targets:
+        return [], 0.0
 
-    # Wochensoll inklusive Uebertrag -- so gleichen sich Randwochen mit nur
-    # ein bis zwei Tagen ueber den Zeitraum wieder aus.
-    need = {k: round(hours_total * w + carry.get(k, 0.0), 4) for k, w in weights}
+    need = {k: round(v, 4) for k, v in targets.items()}
 
     rows: list[tuple[date, str, float]] = []
     # Zufaellige Tagesreihenfolge -> jede Woche sieht anders aus.
@@ -116,12 +205,12 @@ def plan_week(
         merged[(day, k)] = round(merged.get((day, k), 0.0) + block, 2)
 
     allocations = [Allocation(d, k, h) for (d, k), h in sorted(merged.items())]
-    return allocations, hours_total, {k: round(v, 2) for k, v in need.items()}
+    return allocations, hours_total
 
 
 def plan_range(
     days: list[tuple[date, float]],
-    weights: list[tuple[str, float]],
+    plan: Plan,
     seed: int,
 ) -> tuple[list[Allocation], list[WeekReport]]:
     """Verteilt einen Zeitraum, Woche fuer Woche, mit Uebertrag.
@@ -137,23 +226,41 @@ def plan_range(
 
     allocations: list[Allocation] = []
     reports: list[WeekReport] = []
+    # Uebertrag nur fuer Operations -- bei Projekten ist die Angabe eine
+    # Obergrenze, kein Soll, das sich ansammeln duerfte.
     carry: dict[str, float] = {}
+    ops_names = {wbs for wbs, _ in plan.ops}
 
     for (iso_year, iso_week) in sorted(weeks):
         week_days = weeks[(iso_year, iso_week)]
-        rows, hours_total, carry = plan_week(week_days, weights, carry, rng)
+        hours_total = round(sum(h for _, h in week_days), 2)
+        targets, meta = compute_targets(hours_total, len(week_days), plan, carry)
+        rows, _ = plan_week(week_days, targets, rng)
         allocations.extend(rows)
 
         per_wbs: dict[str, float] = {}
         for a in rows:
             per_wbs[a.wbs_element] = round(per_wbs.get(a.wbs_element, 0.0) + a.hours, 2)
+
+        # Was Operations diese Woche nicht bekommen hat, geht in die naechste.
+        carry = {
+            wbs: round(targets.get(wbs, 0.0) - per_wbs.get(wbs, 0.0), 2)
+            for wbs in ops_names
+        }
+
         reports.append(WeekReport(
             iso_year=iso_year,
             iso_week=iso_week,
             days=len(week_days),
             hours=hours_total,
             per_wbs=per_wbs,
-            target_per_wbs={k: round(hours_total * w, 2) for k, w in weights},
+            target_per_wbs={k: round(v, 2) for k, v in targets.items()},
+            project_hours=round(
+                sum(h for w, h in per_wbs.items() if w not in ops_names), 2),
+            ops_hours=round(
+                sum(h for w, h in per_wbs.items() if w in ops_names), 2),
+            projects_capped=meta["projects_capped"],
+            ops_starved=meta["ops_starved"],
         ))
 
     return allocations, reports
@@ -171,7 +278,7 @@ def score_reports(reports: list[WeekReport]) -> float:
 
 def plan_range_best_of(
     days: list[tuple[date, float]],
-    weights: list[tuple[str, float]],
+    plan: Plan,
     seed: int,
     candidates: int = DEFAULT_CANDIDATES,
 ) -> tuple[list[Allocation], list[WeekReport], int]:
@@ -187,7 +294,7 @@ def plan_range_best_of(
 
     for i in range(max(1, candidates)):
         candidate_seed = seed + i
-        allocations, reports = plan_range(days, weights, candidate_seed)
+        allocations, reports = plan_range(days, plan, candidate_seed)
         current = score_reports(reports)
         if best_score is None or current < best_score:
             best, best_score = (allocations, reports, candidate_seed), current

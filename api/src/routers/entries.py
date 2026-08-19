@@ -11,7 +11,7 @@ from database import get_pool
 from deps import get_current_user
 from keys import get_dek
 from recalc import recalculate
-from routers.cats import load_config, weights_as_fractions
+from routers.cats import load_config, plan_from_config
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
@@ -92,7 +92,7 @@ async def recalculate_entries(
     if not cfg_row:
         raise HTTPException(400, "Bitte zuerst die CATS-Config ausfuellen.")
     return await recalculate(
-        pool, user_id, dek, weights_as_fractions(cfg_row), cfg_row["version"], seed
+        pool, user_id, dek, plan_from_config(cfg_row), cfg_row["version"], seed
     )
 
 

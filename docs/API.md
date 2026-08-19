@@ -58,13 +58,25 @@ enthält `warnings` mit Elementen, deren Gewichtung unter der Mindestbuchung lie
 ```json
 {
   "personnel_number": "00123456",
+  "projects": [
+    {"wbs": "PRJ-4711/PJ00-O51.0000", "max_hours_per_week": 10},
+    {"wbs": "PRJ-4712/PJ00-O51.0000", "max_hours_per_week": 6}
+  ],
   "wbs_elements": [
     {"wbs": "DEO1111-NP/PJ00-O51.0000", "weight": 60},
     {"wbs": "DEO2222-NP/PJ00-O51.0000", "weight": 40}
   ],
+  "priority": "projects",
+  "operations_min_pct": 0,
   "reason_rules": {"Dienstreise": "book"}
 }
 ```
+
+`projects` tragen eine Obergrenze in Stunden je Woche und werden zuerst bedient;
+`wbs_elements` teilen sich nach Gewicht, was übrig bleibt. `priority` entscheidet bei
+Überzeichnung, wer nachgibt — bei `operations` sichert `operations_min_pct` den
+gewichteten Elementen einen Mindestanteil der Woche. Ein WBS-Element darf nur in
+einer der beiden Listen stehen, sonst **400**.
 
 ## Import
 
