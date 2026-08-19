@@ -72,6 +72,30 @@ Beispiel über zwei Monate, Gewichtung 40/25/15/15/5:
 Über den Gesamtzeitraum lag die Abweichung bei unter 1 pp je WBS-Element, bei exakt
 stimmender Stundensumme.
 
+## Datenspeicherung
+
+Zeitnachweise sind heikel — sie enthalten Arbeitszeiten und über die
+Abwesenheitsgründe auch Krankheitstage. Deshalb entscheidet **jeder Benutzer selbst**,
+ob überhaupt etwas aufbewahrt wird:
+
+- **Mit Historie** — Arbeitszeiten, Zieltabelle, PDFs und Exporte bleiben im Workspace.
+  Die App weiß dann, was schon nach CATS gebucht wurde, und warnt vor Doppelbuchungen.
+- **Ohne Historie** — reines Import/Export-Werkzeug. PDF rein, XLSX raus, danach bleibt
+  nichts zurück. Man muss selbst im Blick behalten, welche Zeiträume gebucht sind.
+
+Was gespeichert wird, liegt **verschlüsselt** (AES-256-GCM, eigener Schlüssel je
+Benutzer): Stunden, WBS-Elemente, Personalnummer, die PDFs und die erzeugten XLSX. Wer
+an Platte, Backup oder Datenbank-Abzug kommt, kann damit nichts anfangen. Im Klartext
+bleiben nur Datumsangaben, Zeitstempel und Konto-Stammdaten — sie werden zum Filtern
+und Anmelden gebraucht.
+
+Wer auch den Betreiber aussperren will, setzt eine **eigene Passphrase**: der
+Datenschlüssel wird dann nur noch mit ihr ausgewickelt. Ehrlich dazugesagt: während
+einer Sitzung läuft der Schlüssel durch den Server-Arbeitsspeicher, weil PDF-Auswertung
+und Verteilung dort stattfinden. Gegen jemanden, der den laufenden Server kontrolliert,
+hilft auch eine Passphrase nicht. Und geht sie verloren, sind die Daten weg — es gibt
+kein Zurücksetzen.
+
 ## Technik
 
 ```

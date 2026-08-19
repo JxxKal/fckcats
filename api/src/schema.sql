@@ -17,6 +17,32 @@ CREATE TABLE IF NOT EXISTS users (
     last_login    TIMESTAMPTZ
 );
 
+-- Speichermodus je Benutzer:
+--   persistent -- Arbeitszeiten, Zieltabelle und Historie werden aufbewahrt
+--   ephemeral  -- reines Import/Export-Werkzeug, es wird nichts davon abgelegt
+ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_mode TEXT NOT NULL DEFAULT 'persistent';
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_storage_mode_chk') THEN
+        ALTER TABLE users ADD CONSTRAINT users_storage_mode_chk
+            CHECK (storage_mode IN ('persistent', 'ephemeral'));
+    END IF;
+END $$;
+
+-- ── Datenschluessel je Benutzer ──────────────────────────────────────────────
+-- Der eigentliche Schluessel (DEK) liegt nur eingewickelt hier. Im Modus
+-- 'master' wickelt ihn ein aus DATA_MASTER_KEY abgeleiteter Schluessel aus,
+-- im Modus 'passphrase' nur die Passphrase des Benutzers.
+CREATE TABLE IF NOT EXISTS user_key (
+    user_id     BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    wrapped_dek BYTEA NOT NULL,
+    wrap_mode   TEXT  NOT NULL DEFAULT 'master'
+                CHECK (wrap_mode IN ('master', 'passphrase')),
+    kdf_salt    BYTEA NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Systemweite Konfiguration (SAML-Settings etc.)
 CREATE TABLE IF NOT EXISTS system_config (
     key   TEXT PRIMARY KEY,
@@ -30,11 +56,9 @@ CREATE TABLE IF NOT EXISTS cats_config (
     id              BIGSERIAL PRIMARY KEY,
     user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     version         INT    NOT NULL,
-    personnel_number TEXT  NOT NULL,
-    -- [{"wbs": "...", "weight": 40.0}, ...] — Summe der weights == 100
-    wbs_elements    JSONB  NOT NULL DEFAULT '[]'::jsonb,
-    -- {"Dienstreise": "book", "Fortbildung": "exclude"}
-    reason_rules    JSONB  NOT NULL DEFAULT '{}'::jsonb,
+    -- Verschluesselt: {"personnel_number": "...", "wbs_elements": [...],
+    --                  "reason_rules": {...}}
+    payload_enc     BYTEA,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, version)
 );
@@ -44,15 +68,13 @@ CREATE INDEX IF NOT EXISTS cats_config_user_idx ON cats_config (user_id, version
 CREATE TABLE IF NOT EXISTS uploads (
     id            BIGSERIAL PRIMARY KEY,
     user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    filename      TEXT   NOT NULL,
     stored_path   TEXT   NOT NULL,
-    sha256        TEXT   NOT NULL,
-    period_month  INT,
-    period_year   INT,
-    personnel_number TEXT,
+    -- Verschluesselt: {"filename": "...", "personnel_number": "...",
+    --                  "period_month": 7, "period_year": 2026, "days": [...],
+    --                  "warnings": [...]}
+    payload_enc   BYTEA,
     uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    committed_at  TIMESTAMPTZ,               -- NULL = Vorschau, noch nicht uebernommen
-    parse_result  JSONB  NOT NULL DEFAULT '{}'::jsonb
+    committed_at  TIMESTAMPTZ                -- NULL = Vorschau, noch nicht uebernommen
 );
 CREATE INDEX IF NOT EXISTS uploads_user_idx ON uploads (user_id, uploaded_at DESC);
 
@@ -62,10 +84,8 @@ CREATE TABLE IF NOT EXISTS workday (
     id          BIGSERIAL PRIMARY KEY,
     user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     work_date   DATE   NOT NULL,
-    hours       NUMERIC(6,2) NOT NULL CHECK (hours > 0),
-    source      TEXT   NOT NULL DEFAULT 'pdf'
-                CHECK (source IN ('pdf', 'manual')),
-    reason_text TEXT,                        -- Originaltext aus der Grund-Spalte
+    -- Verschluesselt: {"hours": 7.83, "source": "pdf", "reason_text": "..."}
+    payload_enc BYTEA,
     upload_id   BIGINT REFERENCES uploads(id) ON DELETE SET NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, work_date)
@@ -90,8 +110,11 @@ CREATE TABLE IF NOT EXISTS cats_entry (
     id           BIGSERIAL PRIMARY KEY,
     user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     work_date    DATE   NOT NULL,
-    wbs_element  TEXT   NOT NULL,
-    hours        NUMERIC(6,2) NOT NULL CHECK (hours > 0),
+    -- Verschluesselt: {"wbs_element": "...", "hours": 4.0}
+    payload_enc  BYTEA,
+    -- HMAC des WBS-Elements: haelt die Eindeutigkeit aufrecht, ohne den Wert
+    -- preiszugeben. Ein verschluesseltes Feld taugt nicht fuer UNIQUE.
+    wbs_hash     BYTEA,
     run_id       BIGINT REFERENCES distribution_run(id) ON DELETE SET NULL,
     -- Verweis auf den Export. Wird beim Loeschen des Exports genullt.
     export_id    BIGINT,                     -- FK weiter unten
@@ -100,7 +123,7 @@ CREATE TABLE IF NOT EXISTS cats_entry (
     -- in SAP gebuchten Zeilen wieder als offen sehen und doppelt einspielen.
     exported_at  TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (user_id, work_date, wbs_element)
+    UNIQUE (user_id, work_date, wbs_hash)
 );
 CREATE INDEX IF NOT EXISTS cats_entry_user_date_idx ON cats_entry (user_id, work_date);
 
@@ -117,12 +140,11 @@ CREATE INDEX IF NOT EXISTS cats_entry_open_idx
 CREATE TABLE IF NOT EXISTS export (
     id          BIGSERIAL PRIMARY KEY,
     user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    filename    TEXT   NOT NULL,
     stored_path TEXT   NOT NULL,
     date_from   DATE   NOT NULL,
     date_to     DATE   NOT NULL,
-    row_count   INT    NOT NULL,
-    total_hours NUMERIC(8,2) NOT NULL,
+    -- Verschluesselt: {"filename": "...", "row_count": 71, "total_hours": 152.03}
+    payload_enc BYTEA,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS export_user_idx ON export (user_id, created_at DESC);
@@ -145,7 +167,7 @@ CREATE TABLE IF NOT EXISTS entry_history (
     id          BIGSERIAL PRIMARY KEY,
     user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     work_date   DATE   NOT NULL,
-    payload     JSONB  NOT NULL,             -- ersetzte cats_entry-Zeilen
+    payload_enc BYTEA,                       -- verschluesselte ersetzte Zeilen
     was_exported BOOLEAN NOT NULL DEFAULT FALSE,
     replaced_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

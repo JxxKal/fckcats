@@ -248,7 +248,80 @@ bleibt einsehbar.
 
 ---
 
-## 6. XLSX-Zielformat
+## 6. Datenspeicherung und Verschlüsselung
+
+### Speichermodus je Benutzer
+
+Jeder Benutzer entscheidet selbst, ob überhaupt etwas aufbewahrt wird.
+
+| | `persistent` | `ephemeral` |
+|---|---|---|
+| Arbeitszeiten, Zieltabelle, PDFs, Exporte, Historie | gespeichert (verschlüsselt) | nichts davon |
+| Warnung vor Doppelbuchung | ja | nein |
+| Abgleich eines korrigierten PDFs gegen den Bestand | ja | nein |
+| CATS-Config | gespeichert (verschlüsselt) | gespeichert (verschlüsselt) |
+
+Im Modus `ephemeral` läuft der Ablauf in einem Zug: PDF hochladen → Vorschau und
+Klärfälle → `POST /api/exports/direct` verteilt und liefert die XLSX zurück. Das PDF
+liegt dabei nur für die Dauer des Aufrufs in einem temporären Verzeichnis. Was bereits
+nach CATS gebucht wurde, muss der Benutzer selbst im Blick behalten.
+
+Die Config bleibt in beiden Fällen erhalten — ohne Personalnummer und WBS-Vorrat wäre
+jeder Durchgang eine Neuerfassung. Beim Wechsel nach `ephemeral` wird alles bereits
+Gespeicherte gelöscht; eine Zustimmung zurückzunehmen, die das Vorhandene stehen ließe,
+wäre wirkungslos.
+
+### Schlüsselhierarchie
+
+Jeder Benutzer hat einen eigenen Datenschlüssel (DEK, 32 Byte). Der DEK liegt nur
+eingewickelt in der Datenbank:
+
+- **`master`** — eingewickelt mit einem Schlüssel, den HKDF aus `DATA_MASTER_KEY` und
+  einem benutzereigenen Salt ableitet. Standard, ohne Zutun des Benutzers.
+- **`passphrase`** — eingewickelt mit einem Schlüssel, den scrypt aus einer Passphrase
+  ableitet, die nur der Benutzer kennt. Der Client hält den ausgewickelten DEK für die
+  Dauer der Sitzung und schickt ihn im Kopfzeilenfeld `X-Data-Key` mit.
+
+Ein Wechsel der Passphrase wickelt denselben DEK neu ein — die Daten müssen dabei nicht
+angefasst werden.
+
+### Verschlüsselt wird
+
+AES-256-GCM, Nonce je Vorgang zufällig. Betroffen sind alle Nutzdaten: Stunden,
+WBS-Elemente, Personalnummer, Gewichtungen, Grund-Entscheidungen, das Auswertungs-
+ergebnis der PDFs, die hochgeladenen PDFs selbst und die erzeugten XLSX-Dateien.
+
+### Klartext bleibt
+
+Fremdschlüssel, Datumsangaben, Zeitstempel, der Buchungsstatus — sie werden zum Filtern
+gebraucht. Ebenso die Konto-Stammdaten (Benutzername, Anzeigename, E-Mail), da die
+Anmeldung sie nachschlagen muss.
+
+Ein Angreifer mit Datenbankzugriff sieht also, **an welchen Tagen** jemand gearbeitet
+und **wann** er exportiert hat — aber weder Stundenzahl noch WBS-Element,
+Personalnummer oder PDF-Inhalt.
+
+Weil `wbs_element` verschlüsselt ist, trägt ein HMAC über den Wert
+(`cats_entry.wbs_hash`) die Eindeutigkeit je Tag. Ein einfacher Hash würde nicht
+genügen — WBS-Elemente haben zu wenig Entropie, um einem Wörterbuchangriff
+standzuhalten.
+
+### Wogegen das schützt — und wogegen nicht
+
+**Geschützt:** kopierte Volumes, Datenbank-Dumps, Backups, ausgebaute Platten. Im Modus
+`master` reicht dem Betreiber allerdings die `.env`; erst eine Passphrase sperrt ihn aus.
+
+**Nicht geschützt:** Zugriff auf den laufenden Prozess. Während einer Sitzung liegt der
+DEK im Arbeitsspeicher, weil PDF-Auswertung und Verteilung auf dem Server stattfinden.
+Auch mit Passphrase ist das **kein** Ende-zu-Ende-Schutz — dafür müsste die gesamte
+Verarbeitung im Browser laufen.
+
+**Geht die Passphrase verloren, sind die Daten verloren.** Es gibt kein Zurücksetzen;
+das ist der Preis dafür, dass der Betreiber sie nicht öffnen kann.
+
+---
+
+## 7. XLSX-Zielformat
 
 Exakt nach dem CATS-Mass-Upload-Muster:
 
@@ -266,7 +339,7 @@ zugeteilten WBS-Elemente.
 
 ---
 
-## 7. UI-Fluss
+## 8. UI-Fluss
 
 ```
 Login (SAML oder lokal)
@@ -280,6 +353,8 @@ Login (SAML oder lokal)
        Status offen/exportiert, Zeitraum wählen → XLSX
   └─ Historie: erzeugte Exporte (Download, zurücknehmen, löschen)
        └─ Änderungsprotokoll ersetzter Zeilen, löschbar
+  └─ Datenschutz: Speicherung ein/aus, Bestand einsehen und löschen,
+       eigene Passphrase setzen, ändern, entfernen
   └─ [admin] Einstellungen
        └─ Benutzer: lokale anlegen, Rolle, Zugang, Passwort setzen;
             SAML-Benutzer erscheinen nach ihrer ersten Anmeldung
@@ -288,7 +363,7 @@ Login (SAML oder lokal)
 
 ---
 
-## 8. Gesetzte Annahmen
+## 9. Gesetzte Annahmen
 
 1. Lokaler Admin-Fallback neben SAML (nötig wegen Henne-Ei bei der SAML-Konfiguration).
 2. Woche = ISO-Woche Mo–So.
@@ -297,3 +372,5 @@ Login (SAML oder lokal)
 5. PDFs und erzeugte XLSX werden dauerhaft im Workspace aufbewahrt.
 6. WBS-Elemente haben keine Gültigkeitszeiträume.
 7. Speicher: Postgres + Docker-Volume. Kein Objektspeicher.
+8. Konto-Stammdaten bleiben im Klartext, weil die Anmeldung sie nachschlagen muss.
+9. Der Speichermodus gilt je Benutzer, nicht systemweit.

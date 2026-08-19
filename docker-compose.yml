@@ -26,6 +26,7 @@ services:
     environment:
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-fckcats}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fckcats}
       SECRET_KEY:   ${SECRET_KEY:?SECRET_KEY fehlt - siehe .env.example}
+      DATA_MASTER_KEY: ${DATA_MASTER_KEY:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD fehlt - siehe .env.example}
       CERT_DIR:  /certs
       DATA_DIR:  /data

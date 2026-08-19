@@ -6,8 +6,10 @@ from datetime import date
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+import store
 from database import get_pool
 from deps import get_current_user
+from keys import get_dek
 from recalc import recalculate
 from routers.cats import load_config, weights_as_fractions
 
@@ -21,32 +23,11 @@ async def list_entries(
     only_open: bool = Query(default=False),
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
+    dek: bytes = Depends(get_dek),
 ) -> dict:
     user_id = int(user["sub"])
-    clauses = ["e.user_id = $1"]
-    params: list = [user_id]
-    if date_from:
-        params.append(date_from)
-        clauses.append(f"e.work_date >= ${len(params)}")
-    if date_to:
-        params.append(date_to)
-        clauses.append(f"e.work_date <= ${len(params)}")
-    if only_open:
-        clauses.append("e.exported_at IS NULL")
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            f"""
-            SELECT e.work_date, e.wbs_element, e.hours, e.export_id, e.exported_at,
-                   w.hours AS day_hours, w.source, w.reason_text
-            FROM cats_entry e
-            LEFT JOIN workday w
-                   ON w.user_id = e.user_id AND w.work_date = e.work_date
-            WHERE {' AND '.join(clauses)}
-            ORDER BY e.work_date, e.wbs_element
-            """,
-            *params,
-        )
+    rows = await store.load_entries(pool, user_id, dek, date_from, date_to, only_open)
+    workdays = {w["work_date"]: w for w in await store.load_workdays(pool, user_id, dek)}
 
     weeks: dict[tuple[int, int], dict] = {}
     for r in rows:
@@ -72,6 +53,7 @@ async def list_entries(
             week["open_rows"] += 1
         else:
             week["exported_rows"] += 1
+        day = workdays.get(r["work_date"], {})
         week["rows"].append({
             "work_date": r["work_date"].isoformat(),
             "wbs_element": r["wbs_element"],
@@ -79,8 +61,8 @@ async def list_entries(
             "exported": r["exported_at"] is not None,
             "export_id": r["export_id"],
             "exported_at": r["exported_at"].isoformat() if r["exported_at"] else None,
-            "day_hours": float(r["day_hours"]) if r["day_hours"] is not None else None,
-            "day_source": r["source"],
+            "day_hours": float(day["hours"]) if day.get("hours") is not None else None,
+            "day_source": day.get("source"),
         })
 
     out = []
@@ -103,13 +85,14 @@ async def recalculate_entries(
     seed: int | None = Query(default=None, description="Fuer reproduzierbare Laeufe"),
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
+    dek: bytes = Depends(get_dek),
 ) -> dict:
     user_id = int(user["sub"])
-    cfg_row = await load_config(pool, user_id)
+    cfg_row = await load_config(pool, user_id, dek)
     if not cfg_row:
         raise HTTPException(400, "Bitte zuerst die CATS-Config ausfuellen.")
     return await recalculate(
-        pool, user_id, weights_as_fractions(cfg_row), cfg_row["version"], seed
+        pool, user_id, dek, weights_as_fractions(cfg_row), cfg_row["version"], seed
     )
 
 
@@ -117,17 +100,9 @@ async def recalculate_entries(
 async def entry_history(
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
+    dek: bytes = Depends(get_dek),
 ) -> list[dict]:
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT work_date, payload, was_exported, replaced_at
-            FROM entry_history WHERE user_id = $1
-            ORDER BY replaced_at DESC LIMIT 500
-            """,
-            int(user["sub"]),
-        )
-    return [dict(r) for r in rows]
+    return await store.load_history(pool, int(user["sub"]), dek)
 
 
 @router.delete("/history", summary="Aenderungshistorie loeschen")
@@ -154,19 +129,14 @@ async def clear_entry_history(
 async def list_workdays(
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
+    dek: bytes = Depends(get_dek),
 ) -> list[dict]:
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT work_date, hours, source, reason_text FROM workday "
-            "WHERE user_id = $1 ORDER BY work_date",
-            int(user["sub"]),
-        )
     return [
         {
-            "work_date": r["work_date"].isoformat(),
-            "hours": float(r["hours"]),
-            "source": r["source"],
-            "reason_text": r["reason_text"],
+            "work_date": w["work_date"].isoformat(),
+            "hours": float(w["hours"]),
+            "source": w.get("source"),
+            "reason_text": w.get("reason_text"),
         }
-        for r in rows
+        for w in await store.load_workdays(pool, int(user["sub"]), dek)
     ]

@@ -11,6 +11,7 @@ from datetime import date
 
 import asyncpg
 
+import store
 from distribution import DEFAULT_CANDIDATES, plan_range_best_of
 
 
@@ -24,37 +25,10 @@ async def exported_dates(pool: asyncpg.Pool, user_id: int) -> set[date]:
     return {r["work_date"] for r in rows}
 
 
-async def archive_entries(
-    conn: asyncpg.Connection, user_id: int, days: list[date]
-) -> None:
-    """Sichert die zu ersetzenden Zeilen, bevor sie geloescht werden."""
-    if not days:
-        return
-    rows = await conn.fetch(
-        "SELECT work_date, wbs_element, hours, export_id, exported_at FROM cats_entry "
-        "WHERE user_id = $1 AND work_date = ANY($2::date[])",
-        user_id, days,
-    )
-    by_day: dict[date, list[dict]] = {}
-    for r in rows:
-        by_day.setdefault(r["work_date"], []).append({
-            "wbs_element": r["wbs_element"],
-            "hours": float(r["hours"]),
-            "export_id": r["export_id"],
-            "exported_at": r["exported_at"].isoformat() if r["exported_at"] else None,
-        })
-    for day, payload in by_day.items():
-        await conn.execute(
-            "INSERT INTO entry_history (user_id, work_date, payload, was_exported) "
-            "VALUES ($1, $2, $3, $4)",
-            user_id, day, payload,
-            any(p["exported_at"] is not None for p in payload),
-        )
-
-
 async def recalculate(
     pool: asyncpg.Pool,
     user_id: int,
+    dek: bytes,
     weights: list[tuple[str, float]],
     config_version: int,
     seed: int | None = None,
@@ -76,11 +50,7 @@ async def recalculate(
     released = set(release_dates or ())
     locked = await exported_dates(pool, user_id) - released
 
-    async with pool.acquire() as conn:
-        workdays = await conn.fetch(
-            "SELECT work_date, hours FROM workday WHERE user_id = $1 ORDER BY work_date",
-            user_id,
-        )
+    workdays = await store.load_workdays(pool, user_id, dek)
 
     open_days = [
         (r["work_date"], float(r["hours"]))
@@ -113,9 +83,9 @@ async def recalculate(
                 min(d for d, _ in open_days), max(d for d, _ in open_days),
             )
             days = [d for d, _ in open_days]
-            # Archivieren, solange export_id noch gesetzt ist -- sonst ginge
+            # Archivieren, solange exported_at noch gesetzt ist -- sonst ginge
             # verloren, dass diese Zeilen bereits exportiert waren.
-            await archive_entries(conn, user_id, days)
+            await store.archive_entries(conn, user_id, dek, days)
             if released:
                 await conn.execute(
                     "UPDATE cats_entry SET export_id = NULL, exported_at = NULL "
@@ -127,10 +97,10 @@ async def recalculate(
                 "AND exported_at IS NULL",
                 user_id, days,
             )
-            await conn.executemany(
-                "INSERT INTO cats_entry (user_id, work_date, wbs_element, hours, run_id) "
-                "VALUES ($1, $2, $3, $4, $5)",
-                [(user_id, a.work_date, a.wbs_element, a.hours, run_id) for a in allocations],
+            await store.insert_entries(
+                conn, user_id, dek,
+                [(a.work_date, a.wbs_element, a.hours) for a in allocations],
+                run_id,
             )
 
     return {

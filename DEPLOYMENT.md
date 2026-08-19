@@ -32,6 +32,7 @@ cp .env.example .env
 
 ```bash
 SECRET_KEY=$(openssl rand -hex 32)      # signiert die JWTs
+DATA_MASTER_KEY=$(openssl rand -hex 32) # verschluesselt die Nutzdaten
 BOOTSTRAP_ADMIN_PASSWORD=…              # Startpasswort des lokalen Admins
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
 ```
@@ -40,8 +41,15 @@ Praktisch in einem Rutsch:
 
 ```bash
 sed -i "s|^SECRET_KEY=.*|SECRET_KEY=$(openssl rand -hex 32)|" .env
+sed -i "s|^DATA_MASTER_KEY=.*|DATA_MASTER_KEY=$(openssl rand -hex 32)|" .env
 sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" .env
 ```
+
+> **`DATA_MASTER_KEY` ist der Schlüssel zu allen gespeicherten Daten.** Geht er
+> verloren, sind Arbeitszeiten, Zieltabellen, PDFs und Exporte unwiederbringlich
+> unlesbar — auch aus einem Backup. Er gehört gesichert, aber **getrennt von der
+> Datenbanksicherung**: liegen beide am selben Ort, ist die Verschlüsselung wertlos.
+> Ist er nicht gesetzt, greift ersatzweise `SECRET_KEY`; dann gilt für den dasselbe.
 
 Ports anpassen, falls 80/443 belegt sind:
 
@@ -137,7 +145,86 @@ Workspaces.
 SAML-Konten erscheinen automatisch nach der ersten Anmeldung. Ihr Kennwort verwaltet
 der Identity Provider; ein Passwortversuch darauf wird abgelehnt.
 
-## 6. SAML einrichten
+## 6. Datenspeicherung und Verschlüsselung
+
+### Was verschlüsselt ist
+
+Alles, was ein Benutzer an Nutzdaten hinterlässt: Stunden, WBS-Elemente,
+Personalnummer, Gewichtungen, das Auswertungsergebnis der PDFs sowie die abgelegten
+PDF- und XLSX-Dateien. Verfahren ist AES-256-GCM mit einem eigenen Schlüssel je
+Benutzer, der selbst nur eingewickelt in der Datenbank liegt.
+
+Im Klartext bleiben Datumsangaben, Zeitstempel, der Buchungsstatus und die
+Konto-Stammdaten — sie werden zum Filtern und Anmelden gebraucht.
+
+Zur Kontrolle am laufenden System:
+
+```bash
+docker compose exec -T postgres pg_dump -U fckcats fckcats | grep -c "DEO"
+# 0 -- kein WBS-Element steht im Klartext in der Sicherung
+```
+
+### Was der Schutz leistet
+
+Er greift gegen jeden, der an die **ruhenden** Daten kommt: kopierte Volumes,
+Datenbank-Dumps, Backups, ausgebaute Platten.
+
+Er greift **nicht** gegen Zugriff auf den laufenden Prozess. Während einer Sitzung
+liegt der Schlüssel im Arbeitsspeicher, weil die PDF-Auswertung und die Verteilung auf
+dem Server stattfinden. Wer `DATA_MASTER_KEY` besitzt — also der Betreiber — kann alle
+Workspaces öffnen, sofern der Benutzer keine eigene Passphrase gesetzt hat.
+
+### Eigene Passphrase
+
+Unter **Datenschutz** kann jeder Benutzer eine Passphrase setzen. Der Datenschlüssel
+wird dann nur noch mit ihr ausgewickelt; `DATA_MASTER_KEY` öffnet diesen Workspace
+nicht mehr. Nach jeder Anmeldung wird sie einmal abgefragt und gilt für den
+Browser-Tab.
+
+**Es gibt keine Wiederherstellung.** Geht die Passphrase verloren, sind die Daten
+dieses Benutzers verloren — genau das ist der Zweck. Als Administrator lässt sich
+weder die Passphrase zurücksetzen noch der Workspace öffnen; nur das Konto und seine
+Daten löschen.
+
+### Speichermodus
+
+Ebenfalls unter **Datenschutz** wählt jeder Benutzer, ob überhaupt gespeichert wird.
+Bei *nichts speichern* arbeitet die Anwendung als reines Import/Export-Werkzeug: das
+PDF wird ausgewertet, die XLSX ausgeliefert, danach bleibt nichts zurück. Beim
+Umschalten wird der vorhandene Bestand gelöscht — die CATS-Config bleibt.
+
+### Umgang mit Sicherungen
+
+```bash
+# Datenbank (enthaelt nur verschluesselte Nutzdaten)
+docker compose exec -T postgres pg_dump -U fckcats fckcats | gzip > fckcats-$(date +%F).sql.gz
+
+# Dateien (PDFs und XLSX, ebenfalls verschluesselt)
+docker run --rm -v fckcats_data:/data -v "$PWD":/backup alpine \
+    tar czf /backup/fckcats-data-$(date +%F).tar.gz -C /data .
+```
+
+Beides ist ohne `DATA_MASTER_KEY` wertlos — und mit ihm vollständig lesbar. Den
+Schlüssel deshalb an einem anderen Ort aufbewahren als die Sicherungen.
+
+### Bestehende Installation aktualisieren
+
+Wer eine ältere Fassung mit unverschlüsselten Daten betreibt, braucht nichts weiter zu
+tun: Beim Start überführt die Anwendung vorhandene Daten selbsttätig, verschlüsselt
+bereits abgelegte Dateien nach und entfernt die Klartextspalten. Das Protokoll zeigt
+es an:
+
+```
+fckcats.migrate: Klartextdaten gefunden in: cats_config, workday, … -- wird verschluesselt.
+fckcats.migrate: 202 Datensaetze verschluesselt, Klartextspalten entfernt.
+fckcats.migrate: 7 abgelegte Dateien nachtraeglich verschluesselt.
+```
+
+Vor dem Aktualisieren eine Sicherung anlegen und `DATA_MASTER_KEY` **vorher** setzen —
+sonst wird mit dem `SECRET_KEY` verschlüsselt, und ein späterer Wechsel macht die Daten
+unlesbar.
+
+## 7. SAML einrichten
 
 Unter **Einstellungen → SAML Single Sign-on**:
 
@@ -166,7 +253,7 @@ SSO-Schaltfläche, der lokale Zugang bleibt daneben bestehen.
 Assertions müssen signiert sein. Wenn der IdP zusätzlich das Response-Envelope
 signiert, lässt sich das über `want_messages_signed` erzwingen.
 
-## 7. Betrieb
+## 8. Betrieb
 
 **Status und Logs**
 
@@ -208,7 +295,7 @@ gunzip -c fckcats-2026-08-18.sql.gz | docker compose exec -T postgres psql -U fc
 docker compose down -v
 ```
 
-## 8. Betrieb hinter einem vorgelagerten Proxy
+## 9. Betrieb hinter einem vorgelagerten Proxy
 
 Läuft bereits ein Reverse Proxy auf dem Host, den Stack auf freie Ports legen und
 TLS im vorgelagerten Proxy terminieren:
@@ -223,7 +310,7 @@ Der Proxy muss `Host` und `X-Forwarded-For` weiterreichen. Wichtig für SAML: di
 interne. Die Anwendung leitet Schema und Host für die Assertion-Prüfung aus diesem
 Feld ab, damit Port-Mappings die Signaturprüfung nicht zerlegen.
 
-## 9. Fehlersuche
+## 10. Fehlersuche
 
 **`SECRET_KEY fehlt`** beim Start — `.env` fehlt oder die Variable ist nicht gesetzt.
 Compose liest `.env` aus dem Verzeichnis, in dem der Befehl läuft.
@@ -246,6 +333,14 @@ docker compose exec api pdftotext -layout /data/<user-id>/uploads/<datei>.pdf -
 
 Fehlt die Überschrift, ordnet die Anwendung die Werte der Reihe nach zu und meldet
 das als Warnung in der Vorschau.
+
+**`Die Daten konnten mit diesem Schlüssel nicht entschlüsselt werden`** — der
+`DATA_MASTER_KEY` weicht von dem ab, mit dem verschlüsselt wurde. Den ursprünglichen
+Schlüssel wiederherstellen; ohne ihn sind die Daten nicht zu retten.
+
+**`Der Workspace ist mit einer Passphrase gesperrt`** — der Benutzer hat eine eigene
+Passphrase gesetzt und muss sie nach der Anmeldung eingeben. Als Administrator lässt
+sich das weder umgehen noch zurücksetzen.
 
 **Alle Tage landen im Klärfall** — der Zeitnachweis verwendet andere Grundtexte als
 die eingebaute Ausschlussliste. Die Entscheidung einmal treffen und *künftig

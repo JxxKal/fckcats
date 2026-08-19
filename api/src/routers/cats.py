@@ -11,10 +11,12 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+import store
 from config import Config
 from database import get_pool
 from deps import app_config, get_current_user
 from distribution import MIN_SLICE_HOURS, minimum_weight_pct
+from keys import get_dek
 
 router = APIRouter(prefix="/api/cats-config", tags=["cats-config"])
 
@@ -53,18 +55,14 @@ class CatsConfigRequest(BaseModel):
         return v
 
 
-async def load_config(pool: asyncpg.Pool, user_id: int) -> asyncpg.Record | None:
-    """Neueste Version der CATS-Config des Users."""
-    async with pool.acquire() as conn:
-        return await conn.fetchrow(
-            "SELECT * FROM cats_config WHERE user_id = $1 ORDER BY version DESC LIMIT 1",
-            user_id,
-        )
+async def load_config(pool: asyncpg.Pool, user_id: int, dek: bytes) -> dict | None:
+    """Neueste Version der CATS-Config des Users, entschluesselt."""
+    return await store.load_config(pool, user_id, dek)
 
 
-def weights_as_fractions(cfg_row: asyncpg.Record) -> list[tuple[str, float]]:
+def weights_as_fractions(cfg: dict) -> list[tuple[str, float]]:
     """[(wbs, 0..1)] fuer den Verteiler."""
-    elements = cfg_row["wbs_elements"]
+    elements = cfg.get("wbs_elements", [])
     total = sum(e["weight"] for e in elements)
     if total <= 0:
         return []
@@ -97,8 +95,9 @@ async def get_config(
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
     cfg: Config = Depends(app_config),
+    dek: bytes = Depends(get_dek),
 ) -> dict:
-    row = await load_config(pool, int(user["sub"]))
+    row = await load_config(pool, int(user["sub"]), dek)
     if not row:
         return {
             "configured": False,
@@ -111,9 +110,9 @@ async def get_config(
         }
     return {
         "configured": True,
-        "personnel_number": row["personnel_number"],
-        "wbs_elements": row["wbs_elements"],
-        "reason_rules": row["reason_rules"],
+        "personnel_number": row.get("personnel_number", ""),
+        "wbs_elements": row.get("wbs_elements", []),
+        "reason_rules": row.get("reason_rules", {}),
         "version": row["version"],
         "typical_week_hours": cfg.typical_week_hours,
         "min_weight_pct": minimum_weight_pct(cfg.typical_week_hours),
@@ -126,6 +125,7 @@ async def save_config(
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
     cfg: Config = Depends(app_config),
+    dek: bytes = Depends(get_dek),
 ) -> dict:
     if not body.wbs_elements:
         raise HTTPException(400, "Mindestens ein WBS-Element ist erforderlich.")
@@ -145,23 +145,9 @@ async def save_config(
 
     warnings = check_weights(body.wbs_elements, cfg.typical_week_hours)
 
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            version = await conn.fetchval(
-                "SELECT COALESCE(MAX(version), 0) + 1 FROM cats_config WHERE user_id = $1",
-                int(user["sub"]),
-            )
-            await conn.execute(
-                """
-                INSERT INTO cats_config
-                    (user_id, version, personnel_number, wbs_elements, reason_rules)
-                VALUES ($1, $2, $3, $4, $5)
-                """,
-                int(user["sub"]),
-                version,
-                body.personnel_number,
-                [e.model_dump() for e in body.wbs_elements],
-                body.reason_rules,
-            )
-
+    version = await store.save_config(pool, int(user["sub"]), dek, {
+        "personnel_number": body.personnel_number,
+        "wbs_elements": [e.model_dump() for e in body.wbs_elements],
+        "reason_rules": body.reason_rules,
+    })
     return {"version": version, "warnings": warnings}

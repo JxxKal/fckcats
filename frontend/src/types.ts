@@ -40,7 +40,8 @@ export interface ParsedDay {
 }
 
 export interface UploadResult {
-  upload_id: number
+  upload_id: number | null
+  storage_mode: 'persistent' | 'ephemeral' 
   personnel_number: string | null
   employee_name: string | null
   month: number | null
@@ -121,4 +122,17 @@ export interface EntryHistoryRecord {
   payload: { wbs_element: string; hours: number; exported_at: string | null }[]
   was_exported: boolean
   replaced_at: string
+}
+
+export interface PrivacySettings {
+  storage_mode: 'persistent' | 'ephemeral'
+  encryption: 'master' | 'passphrase'
+  stored: {
+    workdays: number
+    entries: number
+    uploads: number
+    exports: number
+    history: number
+  }
+  stored_total: number
 }

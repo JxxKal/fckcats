@@ -3,18 +3,24 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
+import tempfile
 from datetime import date
 
 import asyncpg
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+import crypto
+import store
 from config import Config
 from database import get_pool
 from deps import app_config, get_current_user
-from pdf_parser import parse_pdf
+from keys import get_dek
+from pdf_parser import parse_text, pdf_to_text
 from recalc import exported_dates, recalculate
 from routers.cats import load_config, weights_as_fractions
+from storage_mode import storage_mode_of
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
 
@@ -66,6 +72,7 @@ async def upload_pdf(
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
     cfg: Config = Depends(app_config),
+    dek: bytes = Depends(get_dek),
 ) -> dict:
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(400, "Es werden nur PDF-Dateien angenommen.")
@@ -77,48 +84,65 @@ async def upload_pdf(
         raise HTTPException(400, "Die Datei ist kein PDF.")
 
     user_id = int(user["sub"])
+    mode = await storage_mode_of(pool, user_id)
     digest = hashlib.sha256(payload).hexdigest()
-    target = os.path.join(_user_dir(cfg, user_id, "uploads"), f"{digest[:16]}.pdf")
-    with open(target, "wb") as f:
-        f.write(payload)
 
-    cfg_row = await load_config(pool, user_id)
-    rules = dict(cfg_row["reason_rules"]) if cfg_row else {}
+    cfg_row = await load_config(pool, user_id, dek)
+    rules = dict(cfg_row.get("reason_rules", {})) if cfg_row else {}
 
+    # Auch fuer die Auswertung braucht pdftotext eine Datei. Im Modus
+    # 'ephemeral' liegt sie nur waehrend des Aufrufs in einem temporaeren
+    # Verzeichnis und wird danach entfernt; nichts bleibt auf der Platte.
+    tmp_dir = tempfile.mkdtemp(prefix="fckcats-")
+    tmp_pdf = os.path.join(tmp_dir, "sheet.pdf")
+    target: str | None = None
     try:
-        sheet = parse_pdf(target, rules)
-    except RuntimeError as e:
-        raise HTTPException(422, str(e))
+        with open(tmp_pdf, "wb") as f:
+            f.write(payload)
+        try:
+            sheet = parse_text(pdf_to_text(tmp_pdf), rules)
+        except RuntimeError as e:
+            raise HTTPException(422, str(e))
+        if mode == "persistent":
+            target = os.path.join(_user_dir(cfg, user_id, "uploads"), f"{digest[:16]}.pdf")
+            crypto.encrypt_file(dek, payload, target)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if not sheet.days:
         raise HTTPException(422, "Im PDF wurden keine Tageszeilen gefunden.")
 
     warnings = list(sheet.warnings)
     if cfg_row and sheet.personnel_number and \
-            sheet.personnel_number.lstrip("0") != cfg_row["personnel_number"].lstrip("0"):
+            sheet.personnel_number.lstrip("0") != str(
+                cfg_row.get("personnel_number", "")).lstrip("0"):
         warnings.append(
             f"Die Personalnummer im PDF ({sheet.personnel_number}) weicht von der "
-            f"Konfiguration ({cfg_row['personnel_number']}) ab."
+            f"Konfiguration ({cfg_row.get('personnel_number')}) ab."
         )
 
-    parse_result = {
-        "days": [_day_payload(d) for d in sheet.days],
-        "warnings": warnings,
-    }
+    days_payload = [_day_payload(d) for d in sheet.days]
+    upload_id = None
 
-    async with pool.acquire() as conn:
-        upload_id = await conn.fetchval(
-            """
-            INSERT INTO uploads
-                (user_id, filename, stored_path, sha256, period_month, period_year,
-                 personnel_number, parse_result)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
-            """,
-            user_id, file.filename, target, digest,
-            sheet.month, sheet.year, sheet.personnel_number, parse_result,
-        )
+    if mode == "persistent":
+        record = {
+            "filename": file.filename,
+            "personnel_number": sheet.personnel_number,
+            "period_month": sheet.month,
+            "period_year": sheet.year,
+            "days": days_payload,
+            "warnings": warnings,
+        }
+        async with pool.acquire() as conn:
+            upload_id = await conn.fetchval(
+                """
+                INSERT INTO uploads (user_id, stored_path, sha256, payload_enc)
+                VALUES ($1, $2, $3, $4) RETURNING id
+                """,
+                user_id, target or "", digest, crypto.encrypt_json(dek, record),
+            )
 
-    locked = await exported_dates(pool, user_id)
+    locked = await exported_dates(pool, user_id) if mode == "persistent" else set()
     # Klaerfaelle zaehlen mit: sie koennen nach der Entscheidung gebucht werden.
     touched = [
         d.work_date for d in sheet.days
@@ -127,11 +151,12 @@ async def upload_pdf(
 
     return {
         "upload_id": upload_id,
+        "storage_mode": mode,
         "personnel_number": sheet.personnel_number,
         "employee_name": sheet.employee_name,
         "month": sheet.month,
         "year": sheet.year,
-        "days": parse_result["days"],
+        "days": days_payload,
         "bookable_count": len(sheet.bookable_days),
         "bookable_hours": round(sum(d.hours_net for d in sheet.bookable_days), 2),
         "clarifications": [_day_payload(d) for d in sheet.clarifications],
@@ -144,16 +169,9 @@ async def upload_pdf(
 async def list_uploads(
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
+    dek: bytes = Depends(get_dek),
 ) -> list[dict]:
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT id, filename, period_month, period_year, uploaded_at, committed_at
-            FROM uploads WHERE user_id = $1 ORDER BY uploaded_at DESC LIMIT 100
-            """,
-            int(user["sub"]),
-        )
-    return [dict(r) for r in rows]
+    return await store.list_uploads(pool, int(user["sub"]), dek)
 
 
 @router.post("/{upload_id}/commit", summary="Import uebernehmen")
@@ -162,21 +180,26 @@ async def commit_upload(
     body: CommitRequest,
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
+    dek: bytes = Depends(get_dek),
 ) -> dict:
     user_id = int(user["sub"])
 
-    cfg_row = await load_config(pool, user_id)
+    if await storage_mode_of(pool, user_id) != "persistent":
+        raise HTTPException(
+            409,
+            "Für diesen Workspace ist die Speicherung abgeschaltet. "
+            "Der Export erfolgt direkt aus der Vorschau.",
+        )
+
+    cfg_row = await load_config(pool, user_id, dek)
     if not cfg_row:
         raise HTTPException(400, "Bitte zuerst die CATS-Config ausfuellen.")
 
-    async with pool.acquire() as conn:
-        upload = await conn.fetchrow(
-            "SELECT * FROM uploads WHERE id = $1 AND user_id = $2", upload_id, user_id
-        )
+    upload = await store.load_upload(pool, upload_id, user_id, dek)
     if not upload:
         raise HTTPException(404, "Upload nicht gefunden.")
 
-    days = upload["parse_result"].get("days", [])
+    days = upload.get("days", [])
     decisions = {c.work_date.isoformat(): c for c in body.clarifications}
 
     # Zu schreibende Tage einsammeln: automatisch buchbare plus geklaerte.
@@ -228,39 +251,28 @@ async def commit_upload(
         )
 
     # Dauerhafte Regeln fuer Grundtexte merken.
-    new_rules = dict(cfg_row["reason_rules"])
+    new_rules = dict(cfg_row.get("reason_rules", {}))
     for c in body.clarifications:
         if c.remember_reason:
             new_rules[c.remember_reason] = c.action
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            for work_date, hours, source, reason in to_write:
-                await conn.execute(
-                    """
-                    INSERT INTO workday (user_id, work_date, hours, source, reason_text, upload_id)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                    ON CONFLICT (user_id, work_date) DO UPDATE SET
-                        hours       = EXCLUDED.hours,
-                        source      = EXCLUDED.source,
-                        reason_text = EXCLUDED.reason_text,
-                        upload_id   = EXCLUDED.upload_id
-                    """,
-                    user_id, work_date, hours, source, reason, upload_id,
-                )
-            if new_rules != dict(cfg_row["reason_rules"]):
-                await conn.execute(
-                    "UPDATE cats_config SET reason_rules = $1 WHERE id = $2",
-                    new_rules, cfg_row["id"],
-                )
+            await store.upsert_workdays(conn, user_id, dek, to_write, upload_id)
             await conn.execute(
                 "UPDATE uploads SET committed_at = now() WHERE id = $1", upload_id
             )
+    if new_rules != dict(cfg_row.get("reason_rules", {})):
+        await store.update_config_payload(pool, cfg_row["id"], dek, {
+            "personnel_number": cfg_row.get("personnel_number", ""),
+            "wbs_elements": cfg_row.get("wbs_elements", []),
+            "reason_rules": new_rules,
+        })
 
     # Die Freigabe der exportierten Tage passiert in recalculate, damit sie
     # erst nach dem Archivieren greift.
     result = await recalculate(
-        pool, user_id, weights_as_fractions(cfg_row), cfg_row["version"],
+        pool, user_id, dek, weights_as_fractions(cfg_row), cfg_row["version"],
         release_dates=[date.fromisoformat(c) for c in conflicts],
     )
     return {

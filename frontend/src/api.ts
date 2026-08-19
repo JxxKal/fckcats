@@ -1,11 +1,25 @@
 /** Schmaler API-Client. Das JWT liegt in localStorage und wird als Bearer gesendet. */
 
 const TOKEN_KEY = 'fckcats.token'
+const DATA_KEY = 'fckcats.datakey'
 
 export const token = {
   get: () => localStorage.getItem(TOKEN_KEY),
   set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
+  clear: () => {
+    localStorage.removeItem(TOKEN_KEY)
+    dataKey.clear()
+  },
+}
+
+/**
+ * Datenschlüssel bei gesetzter Passphrase. Bewusst in sessionStorage: er
+ * verschwindet mit dem Tab, statt wie das Token dauerhaft liegenzubleiben.
+ */
+export const dataKey = {
+  get: () => sessionStorage.getItem(DATA_KEY),
+  set: (k: string) => sessionStorage.setItem(DATA_KEY, k),
+  clear: () => sessionStorage.removeItem(DATA_KEY),
 }
 
 export class ApiError extends Error {
@@ -18,6 +32,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   const t = token.get()
   if (t) headers.set('Authorization', `Bearer ${t}`)
+  const k = dataKey.get()
+  if (k) headers.set('X-Data-Key', k)
   if (init.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
@@ -51,6 +67,36 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   get:  <T>(p: string) => request<T>(p),
+  /** POST, dessen Antwort eine Datei ist — für den Export ohne Speicherung. */
+  postDownload: async (p: string, body: unknown, fallbackName: string) => {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token.get()}`,
+      'Content-Type': 'application/json',
+    }
+    const k = dataKey.get()
+    if (k) headers['X-Data-Key'] = k
+    const res = await fetch(p, { method: 'POST', headers, body: JSON.stringify(body) })
+    if (!res.ok) {
+      let detail: string = await res.text()
+      try { detail = JSON.parse(detail).detail ?? detail } catch { /* Klartext */ }
+      throw new ApiError(res.status, detail)
+    }
+    const disposition = res.headers.get('content-disposition') ?? ''
+    const match = disposition.match(/filename="([^"]+)"/)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = match?.[1] ?? fallbackName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    return {
+      rows: Number(res.headers.get('x-row-count') ?? 0),
+      hours: Number(res.headers.get('x-total-hours') ?? 0),
+    }
+  },
   post: <T>(p: string, body?: unknown) =>
     request<T>(p, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
   put:  <T>(p: string, body: unknown) =>
@@ -58,6 +104,9 @@ export const api = {
   patch: <T>(p: string, body: unknown) =>
     request<T>(p, { method: 'PATCH', body: JSON.stringify(body) }),
   del:  <T>(p: string) => request<T>(p, { method: 'DELETE' }),
+  /** DELETE mit Rumpf — die Passphrase gehört nicht in die URL. */
+  delWithBody: <T>(p: string, body: unknown) =>
+    request<T>(p, { method: 'DELETE', body: JSON.stringify(body) }),
   upload: <T>(p: string, file: File) => {
     const fd = new FormData()
     fd.append('file', file)
@@ -70,7 +119,10 @@ export const api = {
   },
   /** Laedt eine Datei mit Bearer-Token und stoesst den Browser-Download an. */
   download: async (p: string, filename: string) => {
-    const res = await fetch(p, { headers: { Authorization: `Bearer ${token.get()}` } })
+    const headers: Record<string, string> = { Authorization: `Bearer ${token.get()}` }
+    const k = dataKey.get()
+    if (k) headers['X-Data-Key'] = k
+    const res = await fetch(p, { headers })
     if (!res.ok) throw new ApiError(res.status, 'Download fehlgeschlagen')
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)

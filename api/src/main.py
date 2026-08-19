@@ -5,12 +5,14 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+import crypto
+import migrate
 from config import Config
 from database import close_pool, get_pool, init_pool
-from routers import admin, auth, cats, entries, exports, imports, saml, ssl
+from routers import admin, auth, cats, entries, exports, imports, privacy, saml, ssl
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +65,8 @@ async def ensure_bootstrap_admin() -> None:
 async def lifespan(app: FastAPI):
     await init_pool(cfg.postgres_dsn)
     await apply_schema()
+    await migrate.run(get_pool())
+    await migrate.encrypt_stored_files(get_pool(), cfg.data_dir)
     await ensure_bootstrap_admin()
     os.makedirs(cfg.data_dir, exist_ok=True)
     os.makedirs(cfg.cert_dir, exist_ok=True)
@@ -85,7 +89,23 @@ app.include_router(cats.router)
 app.include_router(imports.router)
 app.include_router(entries.router)
 app.include_router(exports.router)
+app.include_router(privacy.router)
 app.include_router(admin.router)
+
+
+@app.exception_handler(crypto.CryptoError)
+async def crypto_error_handler(_request: Request, exc: crypto.CryptoError) -> JSONResponse:
+    """Ein unpassender Datenschluessel ist ein Bedienfehler, kein Serverfehler.
+
+    Tritt auf, wenn ein Client einen falschen Schluessel mitschickt oder die
+    Daten mit einem anderen Master-Schluessel verschluesselt wurden.
+    """
+    log.warning("Entschluesselung fehlgeschlagen: %s", exc)
+    return JSONResponse(
+        {"detail": "Die Daten konnten mit diesem Schluessel nicht entschluesselt "
+                   "werden. Bitte den Workspace erneut entsperren."},
+        status_code=409,
+    )
 
 
 @app.get("/api/health", tags=["system"], summary="Healthcheck")

@@ -42,6 +42,35 @@ export default function ImportPage({ onImported }: Props) {
     }
   }
 
+  /** Ohne Speicherung: Verteilung und XLSX in einem Zug, nichts bleibt liegen. */
+  async function exportDirect() {
+    if (!result) return
+    setError(''); setBusy(true)
+    try {
+      const days = result.days
+        .filter(d => d.work_date && d.bookable)
+        .map(d => ({ work_date: d.work_date!, hours: d.hours_net! }))
+      for (const [work_date, d] of Object.entries(decisions)) {
+        if (d.action !== 'book') continue
+        const day = result.clarifications.find(c => c.work_date === work_date)
+        const hours = d.hours ? Number(d.hours.replace(',', '.')) : day?.hours_net
+        if (hours) days.push({ work_date, hours })
+      }
+      if (!days.length) {
+        setError('Es gibt keine buchbaren Tage.')
+        return
+      }
+      const res = await api.postDownload('/api/exports/direct', { days }, 'CATS.xlsx')
+      setDone(`${res.rows} Zeilen mit ${res.hours.toFixed(2).replace('.', ',')} h ` +
+              `erzeugt. Es wurde nichts gespeichert.`)
+      setResult(null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Export fehlgeschlagen')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function commit(confirmOverwrite = false) {
     if (!result) return
     setError(''); setBusy(true)
@@ -238,9 +267,22 @@ export default function ImportPage({ onImported }: Props) {
             </div>
           </div>
 
-          <button className="btn-primary" disabled={busy} onClick={() => void commit()}>
-            Import übernehmen
-          </button>
+          {result.storage_mode === 'ephemeral' ? (
+            <div className="space-y-2">
+              <button className="btn-primary" disabled={busy} onClick={() => void exportDirect()}>
+                Verteilen und als XLSX herunterladen
+              </button>
+              <p className="text-cats-muted">
+                Für diesen Workspace ist die Speicherung abgeschaltet: Die Datei wird
+                erzeugt und ausgeliefert, danach bleibt nichts zurück. Notiere dir
+                selbst, welchen Zeitraum du bereits nach CATS gebucht hast.
+              </p>
+            </div>
+          ) : (
+            <button className="btn-primary" disabled={busy} onClick={() => void commit()}>
+              Import übernehmen
+            </button>
+          )}
         </>
       )}
     </div>

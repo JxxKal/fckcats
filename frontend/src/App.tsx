@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, token } from './api'
+import { api, ApiError, dataKey, token } from './api'
 import type { Me } from './types'
 import LoginPage from './components/LoginPage'
 import PasswordChange from './components/PasswordChange'
@@ -8,19 +8,23 @@ import ImportPage from './components/ImportPage'
 import EntriesPage from './components/EntriesPage'
 import HistoryPage from './components/HistoryPage'
 import SettingsPage from './components/SettingsPage'
+import PrivacyPage from './components/PrivacyPage'
+import UnlockPage from './components/UnlockPage'
 
-type Tab = 'import' | 'entries' | 'config' | 'history' | 'settings'
+type Tab = 'import' | 'entries' | 'config' | 'history' | 'privacy' | 'settings'
 
 const TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
   { id: 'import',   label: 'Import' },
   { id: 'entries',  label: 'Zieltabelle' },
   { id: 'config',   label: 'CATS-Config' },
   { id: 'history',  label: 'Historie' },
+  { id: 'privacy',  label: 'Datenschutz' },
   { id: 'settings', label: 'Einstellungen', adminOnly: true },
 ]
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null)
+  const [locked, setLocked] = useState(false)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('import')
   // Zwingt die Zieltabelle nach einem Import zum Neuladen.
@@ -29,7 +33,15 @@ export default function App() {
   const loadMe = useCallback(async () => {
     if (!token.get()) { setMe(null); setLoading(false); return }
     try {
-      setMe(await api.get<Me>('/api/auth/me'))
+      const profile = await api.get<Me>('/api/auth/me')
+      setMe(profile)
+      // 412 heisst: der Workspace ist mit einer Passphrase gesperrt.
+      try {
+        await api.get('/api/cats-config')
+        setLocked(false)
+      } catch (err) {
+        setLocked(err instanceof ApiError && err.status === 412)
+      }
     } catch {
       token.clear()
       setMe(null)
@@ -42,7 +54,9 @@ export default function App() {
 
   function logout() {
     token.clear()
+    dataKey.clear()
     setMe(null)
+    setLocked(false)
   }
 
   if (loading) {
@@ -53,6 +67,10 @@ export default function App() {
 
   if (me.must_change_password) {
     return <PasswordChange onDone={() => { setLoading(true); void loadMe() }} />
+  }
+
+  if (locked) {
+    return <UnlockPage onUnlocked={() => { setLoading(true); void loadMe() }} />
   }
 
   const visibleTabs = TABS.filter(t => !t.adminOnly || me.role === 'admin')
@@ -94,6 +112,7 @@ export default function App() {
         {tab === 'entries'  && <EntriesPage key={reloadKey} />}
         {tab === 'config'   && <ConfigPage />}
         {tab === 'history'  && <HistoryPage />}
+        {tab === 'privacy'  && <PrivacyPage />}
         {tab === 'settings' && me.role === 'admin' && <SettingsPage />}
       </main>
 
