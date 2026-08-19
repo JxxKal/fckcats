@@ -46,7 +46,17 @@ export default function LoginPage({ onLoggedIn }: Props) {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-8 p-6">
-      <img src="/logo.svg" alt="fckcats" className="w-72 max-w-full" />
+      <div className="flex flex-col items-center gap-3">
+        <img src="/logo.svg" alt="fckcats" className="w-72 max-w-full" />
+        {/* Aufloesung des Kuerzels; das K in "Komplete" traegt den Witz. */}
+        <p className="tracking-[0.15em] text-cats-muted">
+          <span className="font-bold text-brand-darker">F</span>etch
+          <span className="mx-2">–</span>
+          <span className="font-bold text-brand-darker">C</span>heck
+          <span className="mx-2">–</span>
+          <span className="font-bold text-brand-darker">K</span>omplete
+        </p>
+      </div>
 
       <div className="panel w-full max-w-sm">
         <div className="panel-head">Anmeldung</div>

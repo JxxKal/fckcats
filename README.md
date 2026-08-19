@@ -5,6 +5,10 @@
 <h1 align="center">fckcats</h1>
 
 <p align="center">
+  <strong>F</strong>etch &nbsp;–&nbsp; <strong>C</strong>heck &nbsp;–&nbsp; <strong>K</strong>omplete
+</p>
+
+<p align="center">
   Zeitnachweis-PDF rein, SAP-CATS-Mass-Upload-XLSX raus.
 </p>
 
