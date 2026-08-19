@@ -147,8 +147,10 @@ $EDITOR .env          # SECRET_KEY, DATA_MASTER_KEY und Passwörter setzen
 docker compose up -d
 ```
 
-Hinter einem Unternehmensproxy zusätzlich `HTTP_PROXY`, `HTTPS_PROXY` und
-`NO_PROXY` in der `.env` setzen — sie gelten beim Bauen wie zur Laufzeit.
+Hinter einem Unternehmensproxy die bereits vorbereiteten Felder `HTTP_PROXY` und
+`HTTPS_PROXY` in der `.env` ausfüllen — sie gelten beim Bauen wie zur Laufzeit.
+Die Dienstnamen in `NO_PROXY` bitte stehen lassen, sonst läuft die
+Datenbankverbindung über den Proxy.
 
 Danach `http://<host>` öffnen, als `admin` anmelden (Passwort aus
 `BOOTSTRAP_ADMIN_PASSWORD`, wird beim ersten Login geändert), unter *Einstellungen*

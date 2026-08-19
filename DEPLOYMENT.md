@@ -60,8 +60,9 @@ HTTPS_PORT=8443
 
 ### Hinter einem Proxy
 
-Kommt der Host nicht direkt ins Netz, gehören die Proxy-Angaben in die `.env`.
-Sie gelten sowohl beim Bauen (apt, pip, npm) als auch zur Laufzeit:
+Die Felder stehen bereits in der `.env`, leer. Kommt der Host nicht direkt ins
+Netz, werden sie ausgefüllt — sie gelten beim Bauen (apt, pip, npm) genauso wie
+zur Laufzeit:
 
 ```bash
 HTTP_PROXY=http://proxy.example.org:3128
@@ -69,18 +70,18 @@ HTTPS_PROXY=http://proxy.example.org:3128
 NO_PROXY=localhost,127.0.0.1,postgres,api,nginx
 ```
 
-**Die Dienstnamen des Stacks gehören zwingend in `NO_PROXY`.** Fehlen sie,
+**Die Dienstnamen des Stacks müssen in `NO_PROXY` stehen bleiben.** Fehlen sie,
 versucht die Anwendung, die Datenbankverbindung über den Proxy aufzubauen, und
-scheitert. Der eingebaute Vorgabewert deckt das ab; wer `NO_PROXY` selbst setzt,
-muss `postgres`, `api` und `nginx` mit aufnehmen.
+scheitert — der `api`-Container bleibt dann unhealthy, und man sucht den Fehler
+an der falschen Stelle. Eigene interne Domains einfach anhängen.
 
-Sind die Variablen leer oder nicht gesetzt, wird kein Proxy verwendet — der
-Stack läuft dann wie bisher.
+Bleiben `HTTP_PROXY` und `HTTPS_PROXY` leer, wird kein Proxy verwendet.
 
 Zum Prüfen, was tatsächlich ankommt:
 
 ```bash
-docker compose config | grep -A6 'args:'
+docker compose config | grep -i proxy
+docker compose exec api env | grep -i proxy     # Laufzeit
 ```
 
 Starten:
