@@ -18,7 +18,19 @@ services:
     networks: [fckcats-net]
 
   api:
-    build: ./api
+    build:
+      context: ./api
+      # Proxy nur fuer den Bau. Docker behandelt diese Namen als vordefinierte
+      # Build-Argumente: sie landen in der Umgebung jedes RUN-Schritts, also
+      # auch bei apt und pip, und werden nicht in die Image-Historie
+      # geschrieben.
+      args:
+        HTTP_PROXY:  ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY:    ${NO_PROXY:-localhost,127.0.0.1}
+        http_proxy:  ${HTTP_PROXY:-}
+        https_proxy: ${HTTPS_PROXY:-}
+        no_proxy:    ${NO_PROXY:-localhost,127.0.0.1}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -31,6 +43,15 @@ services:
       CERT_DIR:  /certs
       DATA_DIR:  /data
       TYPICAL_WEEK_HOURS: ${TYPICAL_WEEK_HOURS:-38}
+      # Proxy zur Laufzeit, etwa fuer den Bezug von ACME-Zertifikaten.
+      # postgres muss ausgenommen sein, sonst laeuft der Datenbankverkehr
+      # ueber den Proxy und scheitert.
+      HTTP_PROXY:  ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY:    ${NO_PROXY:-localhost,127.0.0.1,postgres,api,nginx}
+      http_proxy:  ${HTTP_PROXY:-}
+      https_proxy: ${HTTPS_PROXY:-}
+      no_proxy:    ${NO_PROXY:-localhost,127.0.0.1,postgres,api,nginx}
     volumes:
       # API schreibt Zertifikate und Hostname, nginx liest sie beim Start.
       - certs:/certs
@@ -45,7 +66,16 @@ services:
     networks: [fckcats-net]
 
   nginx:
-    build: ./frontend
+    build:
+      context: ./frontend
+      # Wird fuer npm install beim Bau des Frontends gebraucht.
+      args:
+        HTTP_PROXY:  ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY:    ${NO_PROXY:-localhost,127.0.0.1}
+        http_proxy:  ${HTTP_PROXY:-}
+        https_proxy: ${HTTPS_PROXY:-}
+        no_proxy:    ${NO_PROXY:-localhost,127.0.0.1}
     restart: unless-stopped
     depends_on:
       - api

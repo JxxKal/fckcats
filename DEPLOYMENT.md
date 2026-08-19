@@ -58,6 +58,31 @@ HTTP_PORT=8080
 HTTPS_PORT=8443
 ```
 
+### Hinter einem Proxy
+
+Kommt der Host nicht direkt ins Netz, gehören die Proxy-Angaben in die `.env`.
+Sie gelten sowohl beim Bauen (apt, pip, npm) als auch zur Laufzeit:
+
+```bash
+HTTP_PROXY=http://proxy.example.org:3128
+HTTPS_PROXY=http://proxy.example.org:3128
+NO_PROXY=localhost,127.0.0.1,postgres,api,nginx
+```
+
+**Die Dienstnamen des Stacks gehören zwingend in `NO_PROXY`.** Fehlen sie,
+versucht die Anwendung, die Datenbankverbindung über den Proxy aufzubauen, und
+scheitert. Der eingebaute Vorgabewert deckt das ab; wer `NO_PROXY` selbst setzt,
+muss `postgres`, `api` und `nginx` mit aufnehmen.
+
+Sind die Variablen leer oder nicht gesetzt, wird kein Proxy verwendet — der
+Stack läuft dann wie bisher.
+
+Zum Prüfen, was tatsächlich ankommt:
+
+```bash
+docker compose config | grep -A6 'args:'
+```
+
 Starten:
 
 ```bash
@@ -281,6 +306,9 @@ git pull
 docker compose up -d --build
 ```
 
+Hinter einem Proxy zieht `--build` die Angaben aus der `.env`; ein zusätzliches
+`--build-arg` ist nicht nötig.
+
 Schemaänderungen werden beim Start idempotent angewandt; ein manueller
 Migrationsschritt entfällt.
 
@@ -331,6 +359,12 @@ Belegte Ports zeigt `ss -ltn`; alternative Ports über `.env` setzen.
 
 **`api` bleibt unhealthy** — `docker compose logs api`. Meist ist die Datenbank noch
 nicht bereit; der Healthcheck von `postgres` hält `api` zurück, bis sie antwortet.
+Ist ein Proxy gesetzt, prüfe, ob `postgres` in `NO_PROXY` steht — sonst geht die
+Datenbankverbindung an den Proxy.
+
+**Bau scheitert an `Unable to connect` oder `Could not resolve host`** — der Host
+braucht einen Proxy, oder der gesetzte stimmt nicht. Siehe *Hinter einem Proxy*
+in Abschnitt 2.
 
 **TLS greift nicht** — nginx liest das Zertifikat ausschließlich beim Start.
 `docker compose restart nginx`, dann `docker compose logs nginx | head -3`.

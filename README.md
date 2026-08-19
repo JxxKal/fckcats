@@ -143,9 +143,12 @@ Siehe **[DEPLOYMENT.md](DEPLOYMENT.md)** für die vollständige Anleitung. Kurzf
 git clone https://github.com/JxxKal/fckcats.git
 cd fckcats
 cp .env.example .env
-$EDITOR .env          # SECRET_KEY und Passwörter setzen
+$EDITOR .env          # SECRET_KEY, DATA_MASTER_KEY und Passwörter setzen
 docker compose up -d
 ```
+
+Hinter einem Unternehmensproxy zusätzlich `HTTP_PROXY`, `HTTPS_PROXY` und
+`NO_PROXY` in der `.env` setzen — sie gelten beim Bauen wie zur Laufzeit.
 
 Danach `http://<host>` öffnen, als `admin` anmelden (Passwort aus
 `BOOTSTRAP_ADMIN_PASSWORD`, wird beim ersten Login geändert), unter *Einstellungen*
