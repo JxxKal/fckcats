@@ -5,6 +5,9 @@ geleisteten Arbeitsstunden und erzeugt daraus eine SAP-CATS-Mass-Upload-XLSX, in
 der die Stunden auf die WBS-Elemente des Users verteilt sind.
 
 > Alle Beispieldaten in diesem Dokument sind synthetisch.
+>
+> Die Endpunkte sind in [docs/API.md](docs/API.md) beschrieben, die Einrichtung in
+> [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 

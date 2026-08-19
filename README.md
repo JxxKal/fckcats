@@ -20,6 +20,8 @@ Gewichtung auf die WBS-Elemente und erzeugt die fertige Upload-Datei.
 tatsächlich geleisteten Arbeitszeit. Es wird nichts gerundet, gekürzt oder erfunden —
 nur anders auf Projekte aufgeteilt.
 
+![Import mit Vorschau und Klärfällen](docs/screenshots/02-import.png)
+
 ## Was die App macht
 
 **PDF einlesen.** Der Zeitnachweis wird per `pdftotext -layout` ausgewertet, die
@@ -46,6 +48,8 @@ sieht anders aus, die Tagessummen stimmen immer.
 Exportierte Zeilen sind markiert, ein korrigiertes PDF für einen bereits gebuchten
 Zeitraum verlangt eine ausdrückliche Bestätigung, und die ersetzte Fassung bleibt in
 der Historie einsehbar.
+
+![Zieltabelle mit Soll/Ist je Woche](docs/screenshots/03-zieltabelle.png)
 
 ## Verteilalgorithmus
 
@@ -88,6 +92,8 @@ Benutzer): Stunden, WBS-Elemente, Personalnummer, die PDFs und die erzeugten XLS
 an Platte, Backup oder Datenbank-Abzug kommt, kann damit nichts anfangen. Im Klartext
 bleiben nur Datumsangaben, Zeitstempel und Konto-Stammdaten — sie werden zum Filtern
 und Anmelden gebraucht.
+
+![Datenschutz-Einstellungen](docs/screenshots/04-datenschutz.png)
 
 Wer auch den Betreiber aussperren will, setzt eine **eigene Passphrase**: der
 Datenschlüssel wird dann nur noch mit ihr ausgewickelt. Ehrlich dazugesagt: während
@@ -169,7 +175,11 @@ pytest api/tests                   # mit pytest
 ## Dokumentation
 
 - **[SPEC.md](SPEC.md)** — vollständige fachliche Spezifikation
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** — Installation, TLS, SAML, Betrieb
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** — Installation, TLS, SAML, Verschlüsselung, Betrieb
+- **[docs/API.md](docs/API.md)** — API-Referenz
+
+Die laufende Instanz bringt die interaktive API-Dokumentation gleich mit:
+`https://<host>/api/docs` (Swagger UI) und `https://<host>/api/redoc`.
 
 ## Hinweis zu Daten
 

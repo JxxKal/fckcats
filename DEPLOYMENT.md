@@ -263,6 +263,17 @@ docker compose logs -f api
 curl -s http://localhost:${HTTP_PORT:-80}/api/health
 ```
 
+**API-Dokumentation.** Die laufende Instanz stellt sie selbst bereit:
+
+| Adresse | Inhalt |
+|---|---|
+| `/api/docs` | Swagger UI, Endpunkte direkt ausprobierbar |
+| `/api/redoc` | ReDoc, zum Nachschlagen |
+| `/api/openapi.json` | OpenAPI-Schema |
+
+Alles liegt unterhalb von `/api/`, weil nginx nur diesen Pfad an die Anwendung
+weiterreicht. Eine geschriebene Übersicht steht in [docs/API.md](docs/API.md).
+
 **Aktualisieren**
 
 ```bash

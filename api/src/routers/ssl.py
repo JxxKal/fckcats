@@ -74,12 +74,14 @@ def _cert_info() -> SslStatusResponse:
         return SslStatusResponse(mode="upload", active=True)
 
 
-@router.get("/status", response_model=SslStatusResponse)
+@router.get("/status", response_model=SslStatusResponse,
+            summary="Zertifikatsstatus lesen")
 async def ssl_status() -> SslStatusResponse:
     return _cert_info()
 
 
-@router.post("/upload", response_model=SslStatusResponse)
+@router.post("/upload", response_model=SslStatusResponse,
+             summary="Zertifikat und Schluessel als PEM hochladen")
 async def ssl_upload(
     cert: UploadFile = File(...),
     key:  UploadFile = File(...),
@@ -102,7 +104,8 @@ async def ssl_upload(
     return _cert_info()
 
 
-@router.post("/upload-pfx", response_model=SslStatusResponse)
+@router.post("/upload-pfx", response_model=SslStatusResponse,
+             summary="Zertifikat als PFX/PKCS#12 importieren")
 async def ssl_upload_pfx(
     pfx:      UploadFile = File(...),
     password: str        = Form(""),
@@ -164,7 +167,8 @@ async def set_hostname(
     return {"hostname": hostname}
 
 
-@router.post("/self-signed", response_model=SslStatusResponse)
+@router.post("/self-signed", response_model=SslStatusResponse,
+             summary="Selbstsigniertes Zertifikat erzeugen")
 async def ssl_self_signed(
     body: SelfSignedRequest,
     _admin: dict = Depends(require_admin),
@@ -221,7 +225,8 @@ async def ssl_self_signed(
     return _cert_info()
 
 
-@router.post("/acme", response_model=SslStatusResponse)
+@router.post("/acme", response_model=SslStatusResponse,
+             summary="ACME-Konfiguration hinterlegen")
 async def ssl_acme(
     body: AcmeConfig,
     _admin: dict = Depends(require_admin),

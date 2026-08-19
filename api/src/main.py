@@ -82,6 +82,11 @@ app = FastAPI(
     description="Zeitnachweis-PDF zu CATS-Mass-Upload-XLSX",
     version="1.0.0",
     lifespan=lifespan,
+    # Unterhalb von /api/, weil nginx nur diesen Pfad weiterreicht; sonst
+    # fingen die Auslieferung der Oberflaeche die Doku-URLs ab.
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
 app.include_router(auth.router)
