@@ -254,15 +254,40 @@ unlesbar.
 
 ## 7. SAML einrichten
 
-Unter **Einstellungen → SAML Single Sign-on**:
+Unter **Einstellungen → SAML Single Sign-on**.
 
-| Feld | Inhalt |
-|---|---|
-| IdP Entity ID | Entity-ID des Identity Providers |
-| IdP SSO-URL | Redirect-Endpunkt des IdP |
-| IdP-Zertifikat | X.509 des IdP, Base64 (mit oder ohne PEM-Header) |
-| SP Entity ID | frei wählbar, z. B. `https://fckcats.example.org` |
-| ACS-URL | `https://fckcats.example.org/api/auth/saml/acs` |
+### Metadata des IdP einlesen
+
+Statt die Felder abzutippen, lässt sich die Metadata-XML des Identity Providers
+einlesen — hochladen oder einfügen. Daraus werden übernommen:
+
+- **Entity ID** vom umschließenden `EntityDescriptor`
+- **SSO-URL**, bevorzugt das HTTP-Redirect-Binding, weil die Anwendung damit
+  anmeldet
+- **SLO-URL**, bevorzugt HTTP-POST
+- **Signaturzertifikat** aus dem `KeyDescriptor` mit `use="signing"` — ein
+  Zertifikat für Verschlüsselung wird übergangen
+
+Vor der Übernahme zeigt eine Vorschau, was erkannt wurde; erst *Werte übernehmen*
+schreibt sie in die Felder, und gespeichert wird auch dann noch nicht. Die
+übrigen Angaben — SP Entity ID, ACS-URL, Attribut-Mapping — bleiben unberührt,
+weil sie nicht in der IdP-Metadata stehen.
+
+Enthält die Datei mehrere Einträge, etwa eine Föderationsliste, wird der erste
+`IDPSSODescriptor` genommen und ein Hinweis angezeigt. Eine Datei ohne
+IDPSSODescriptor wird abgelehnt — meist ist es dann versehentlich die
+SP-Metadata.
+
+### Die Felder
+
+| Feld | Inhalt | aus Metadata |
+|---|---|---|
+| IdP Entity ID | Entity-ID des Identity Providers | ja |
+| IdP SSO-URL | Redirect-Endpunkt des IdP | ja |
+| IdP SLO-URL | Single Logout des IdP | ja |
+| IdP-Zertifikat | X.509 des IdP, Base64 (mit oder ohne PEM-Header) | ja |
+| SP Entity ID | frei wählbar, z. B. `https://fckcats.example.org` | nein |
+| ACS-URL | `https://fckcats.example.org/api/auth/saml/acs` | nein |
 
 Das Attribut-Mapping ist einstellbar; Vorgabe ist `uid` für den Benutzernamen,
 `email` und `displayName`. **Der Benutzername ist der Workspace-Schlüssel** — er muss

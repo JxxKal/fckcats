@@ -126,8 +126,9 @@ nginx (80/443)  →  api (FastAPI)  →  postgres
 ```
 
 - **Anmeldung** per SAML 2.0 (SP-initiiert, ACS, SP-Metadata, Single Logout) gegen
-  einen beliebigen IdP. Daneben ein lokaler Zugang, ohne den sich SAML nicht
-  einrichten ließe.
+  einen beliebigen IdP. Die IdP-Metadata lässt sich als XML einlesen, statt Entity
+  ID, Endpunkte und Zertifikat abzutippen. Daneben ein lokaler Zugang, ohne den
+  sich SAML nicht einrichten ließe.
 - **Workspaces** sind strikt getrennt: jeder sieht ausschließlich eigene Daten.
 - **Benutzerverwaltung** in der Oberfläche: lokale Konten anlegen, Rollen vergeben,
   Passwörter setzen. SAML-Konten tauchen nach der ersten Anmeldung automatisch auf.

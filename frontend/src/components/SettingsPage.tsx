@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api'
 import type { SslStatus } from '../types'
 import UserSection from './UserSection'
+import IdpMetadataImport from './IdpMetadataImport'
 
 interface SamlSettings {
   enabled: boolean
@@ -153,7 +154,7 @@ export default function SettingsPage() {
       {saml && (
         <div className="panel max-w-3xl">
           <div className="panel-head">SAML Single Sign-on</div>
-          <form className="panel-body space-y-2" onSubmit={e => {
+          <form className="panel-body space-y-3" onSubmit={e => {
             e.preventDefault()
             void run(() => api.put('/api/admin/saml', saml), 'SAML-Einstellungen gespeichert.')
           }}>
@@ -162,6 +163,12 @@ export default function SettingsPage() {
                      onChange={e => setSaml({ ...saml, enabled: e.target.checked })} />
               <span className="font-bold">SAML aktivieren</span>
             </label>
+
+            <IdpMetadataImport onImport={values => {
+              setSaml({ ...saml, ...values })
+              setMessage('Werte aus der Metadata übernommen. Noch nicht gespeichert.')
+              setError('')
+            }} />
 
             {([
               ['idp_entity_id', 'IdP Entity ID'],

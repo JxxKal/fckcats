@@ -406,7 +406,9 @@ Login (SAML oder lokal)
   └─ [admin] Einstellungen
        └─ Benutzer: lokale anlegen, Rolle, Zugang, Passwort setzen;
             SAML-Benutzer erscheinen nach ihrer ersten Anmeldung
-       └─ Hostname, TLS-Zertifikat, SAML
+       └─ Hostname, TLS-Zertifikat
+       └─ SAML: IdP-Metadata einlesen (Datei oder eingefügt), Felder,
+            SP-Metadata zum Herunterladen
 ```
 
 ---
