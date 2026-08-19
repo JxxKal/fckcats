@@ -381,21 +381,39 @@ docker compose up -d
 ```
 
 *2. Eigenes Subnetz für diesen Stack.* Umgeht die Pool-Vergabe ganz und kommt
-ohne Neustart des Daemons aus. In der `.env`:
+ohne Neustart des Daemons aus. Zwei Zeilen in die `.env`:
 
 ```bash
 FCKCATS_SUBNET=172.31.250.0/24
+COMPOSE_FILE=docker-compose.yml:docker-compose.subnet.yml
 ```
 
-und dann mit der Override-Datei starten:
+Danach wie gewohnt starten:
+
+```bash
+docker compose up -d
+```
+
+`COMPOSE_FILE` sorgt dafür, dass **jeder** Compose-Befehl die Override-Datei
+mitnimmt. Ohne diese Zeile müsste sie jedes Mal angehängt werden:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.subnet.yml up -d
 ```
 
+und ein vergessenes `docker compose up -d` würde das Netz wieder aus dem Pool
+anlegen — also genau in den Fehler zurückfallen.
+
 Der Bereich darf sich weder mit dem Firmennetz noch mit einem anderen
-Docker-Netz auf dem Host überschneiden — siehe Ausgabe oben. Weil es eine
-eigene Datei ist, übersteht die Einstellung ein `git pull`.
+Docker-Netz auf dem Host überschneiden — siehe Ausgabe oben. Weil die Einstellung
+in `.env` und einer eigenen Datei steht, übersteht sie ein `git pull`.
+
+Zur Kontrolle nach dem Start:
+
+```bash
+docker network inspect fckcats_fckcats-net \
+    --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+```
 
 *3. Den Pool des Daemons vergrößern*, wenn auf dem Host dauerhaft viele Stacks
 laufen. In `/etc/docker/daemon.json`:
