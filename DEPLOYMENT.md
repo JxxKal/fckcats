@@ -122,7 +122,9 @@ Unter **Einstellungen** (nur für Administratoren sichtbar):
 - *Selbstsigniert* — für Tests und interne Umgebungen. Common Name und Laufzeit
   angeben.
 
-Beides landet im Volume `certs`. **nginx liest es nur beim Start**, also danach:
+Beides landet im Volume `certs`. **nginx liest es nur beim Start** — vorher
+antwortet Port 443 überhaupt nicht, weil nginx ihn ohne Zertifikat gar nicht
+erst öffnet. Also nach dem Hinterlegen zwingend:
 
 ```bash
 docker compose restart nginx
@@ -439,6 +441,29 @@ Datenbankverbindung an den Proxy.
 **Bau scheitert an `Unable to connect` oder `Could not resolve host`** — der Host
 braucht einen Proxy, oder der gesetzte stimmt nicht. Siehe *Hinter einem Proxy*
 in Abschnitt 2.
+
+**HTTPS baut gar keine Verbindung auf, HTTP geht** — dann liegt kein Zertifikat
+vor. nginx öffnet Port 443 nur, wenn eines da ist; ohne eines lauscht im
+Container nichts darauf, und der gemappte Port läuft ins Leere. Was nginx beim
+Start gemeldet hat:
+
+```bash
+docker compose logs nginx | grep '\[nginx\]'
+```
+
+`Kein Zertifikat - Port 80 ohne TLS` bestätigt es. Abhilfe: über HTTP anmelden,
+unter *Einstellungen → TLS-Zertifikat* eines hinterlegen oder erzeugen, dann
+`docker compose restart nginx`. Danach muss dort stehen:
+
+```
+[nginx] Zertifikat gefunden - Port 443 mit Weiterleitung von 80
+```
+
+Gegenprobe, wer im Container überhaupt lauscht:
+
+```bash
+docker compose exec nginx netstat -ltn
+```
 
 **TLS greift nicht** — nginx liest das Zertifikat ausschließlich beim Start.
 `docker compose restart nginx`, dann `docker compose logs nginx | head -3`.
