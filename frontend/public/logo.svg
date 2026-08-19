@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="FCK CATS">
   <title>FCK CATS</title>
   <defs>
-    <!-- Schraege rechte Kante: x(y) = 990 - 0.2744 * (y - 100) -->
+    <!-- Schraege rechte Kante bei x(y) = 990 minus 0.2744 mal (y minus 100) -->
     <clipPath id="badge">
       <polygon points="90,100 990,100 765,920 90,920"/>
     </clipPath>
@@ -17,13 +17,21 @@
     <!-- Rote Baender oben und unten -->
     <polygon points="90,140 979,140 961,207 90,207" fill="#D64C45"/>
     <polygon points="90,812 766,812 748,879 90,879" fill="#D64C45"/>
+  </g>
 
-    <!-- Schrift: Blockletter, wie im Original -->
-    <g fill="#111111" font-family="'Arial Black','Arial Bold',Arial,Helvetica,sans-serif"
-       font-weight="900" font-size="270" letter-spacing="4">
-      <text x="140" y="470">FCK</text>
-      <text x="140" y="800">CATS</text>
-    </g>
+  <!--
+    Blockletter wie im Original. Die Kontur in derselben Farbe macht die
+    Glyphen fett, auch wo keine Black-Schnittfamilie installiert ist; sonst
+    faellt der Browser auf gewoehnliches Arial zurueck und die Schrift wirkt
+    duenn. textLength haelt die Breite unabhaengig von der Schriftart fest,
+    damit das Logo ueberall gleich aussieht.
+  -->
+  <g fill="#111111" stroke="#111111" stroke-width="16" stroke-linejoin="round"
+     paint-order="stroke"
+     font-family="'Arial Black','Helvetica Neue',Arial,Helvetica,sans-serif"
+     font-weight="900" font-size="280">
+    <text x="140" y="468" textLength="575" lengthAdjust="spacingAndGlyphs">FCK</text>
+    <text x="140" y="800" textLength="690" lengthAdjust="spacingAndGlyphs">CATS</text>
   </g>
 
   <!-- Gelbes Band: laeuft links ueber den Rand hinaus und liegt ueber der Schrift -->

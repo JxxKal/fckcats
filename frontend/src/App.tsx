@@ -79,16 +79,23 @@ export default function App() {
     <div className="min-h-screen flex flex-col">
       <header className="bg-gradient-to-b from-cats-header to-cats-bg border-b border-cats-border">
         <div className="px-4 py-2 flex items-center gap-3">
-          <img src="/logo.svg" alt="" className="h-9" />
+          <img src="/logo.svg" alt="" className="h-11" />
           <h1 className="font-bold italic text-lg text-brand-darker">
             Zeitnachweis → CATS Mass Upload
           </h1>
           <div className="ml-auto flex items-center gap-3">
-            <span className="text-cats-muted">
-              {me.display_name || me.username}
-              {me.role === 'admin' && ' · Administrator'}
-              {me.source === 'saml' && ' · SSO'}
-            </span>
+            <span className="text-cats-muted">{me.display_name || me.username}</span>
+            {me.role === 'admin' && (
+              <span className="px-2 py-0.5 border border-brand-dark bg-brand text-white">
+                Administrator
+              </span>
+            )}
+            {me.source === 'saml' && (
+              <span className="px-2 py-0.5 border border-cats-border bg-cats-rowalt
+                               text-cats-muted">
+                SSO
+              </span>
+            )}
             <button className="btn" onClick={logout}>Abmelden</button>
           </div>
         </div>

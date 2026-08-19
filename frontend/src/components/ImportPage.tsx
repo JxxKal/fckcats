@@ -29,7 +29,8 @@ export default function ImportPage({ onImported }: Props) {
         if (c.work_date) {
           init[c.work_date] = {
             action: 'book',
-            hours: String(c.hours_net ?? c.hours_target ?? ''),
+            // Komma wie im Rest der Oberflaeche; beim Senden zurueckgewandelt.
+            hours: fmtHours(c.hours_net ?? c.hours_target ?? null),
             remember: Boolean(c.reason),
           }
         }

@@ -47,11 +47,13 @@ async def ensure_bootstrap_admin() -> None:
         count = await conn.fetchval("SELECT count(*) FROM users")
         if count:
             return
+        # Ohne Anzeigenamen: die Oberflaeche zeigt dann den Benutzernamen und
+        # die Rolle als eigenes Kennzeichen, statt zweimal "Administrator".
         await conn.execute(
             """
             INSERT INTO users
-                (username, display_name, password_hash, role, source, must_change_password)
-            VALUES ('admin', 'Administrator', $1, 'admin', 'local', TRUE)
+                (username, password_hash, role, source, must_change_password)
+            VALUES ('admin', $1, 'admin', 'local', TRUE)
             """,
             hash_password(cfg.bootstrap_admin_password),
         )

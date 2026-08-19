@@ -37,8 +37,8 @@ export default function UserSection() {
             <tr>
               <th>Benutzer</th>
               <th>Anzeigename</th>
-              <th className="w-32">Anmeldung</th>
-              <th className="w-32">Rolle</th>
+              <th className="w-28">Anmeldung</th>
+              <th className="w-44">Rolle</th>
               <th className="w-20 text-right">Zeilen</th>
               <th className="w-40">letzter Login</th>
               <th className="w-56"></th>
