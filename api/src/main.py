@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -98,6 +99,30 @@ app.include_router(entries.router)
 app.include_router(exports.router)
 app.include_router(privacy.router)
 app.include_router(admin.router)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Faengt alles, was sonst als blankes "Internal Server Error" endet.
+
+    Der Traceback bleibt im Protokoll, der Client bekommt nur eine Kennung.
+    Damit laesst sich der Vorfall zuordnen, ohne Interna preiszugeben:
+
+        docker compose logs api | grep <kennung>
+    """
+    error_id = uuid.uuid4().hex[:8]
+    log.exception(
+        "Unbehandelter Fehler [%s] bei %s %s",
+        error_id, request.method, request.url.path,
+    )
+    return JSONResponse(
+        {
+            "detail": "Unerwarteter Fehler in der Anwendung. Die Einzelheiten stehen "
+                      f"im Protokoll des api-Containers unter der Kennung {error_id}.",
+            "error_id": error_id,
+        },
+        status_code=500,
+    )
 
 
 @app.exception_handler(crypto.CryptoError)

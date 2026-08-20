@@ -103,9 +103,26 @@ async def upload_pdf(
             sheet = parse_text(pdf_to_text(tmp_pdf), rules)
         except RuntimeError as e:
             raise HTTPException(422, str(e))
+        except Exception as e:
+            # Ein unerwartet aufgebautes PDF ist ein Problem der Datei, nicht
+            # der Anwendung -- entsprechend melden statt 500.
+            raise HTTPException(
+                422,
+                f"Das PDF konnte nicht ausgewertet werden ({type(e).__name__}: {e}). "
+                f"Stammt es aus derselben Quelle wie die uebrigen Zeitnachweise?",
+            )
         if mode == "persistent":
-            target = os.path.join(_user_dir(cfg, user_id, "uploads"), f"{digest[:16]}.pdf")
-            crypto.encrypt_file(dek, payload, target)
+            try:
+                target = os.path.join(_user_dir(cfg, user_id, "uploads"), f"{digest[:16]}.pdf")
+                crypto.encrypt_file(dek, payload, target)
+            except OSError as e:
+                # Volle Platte oder fehlende Rechte am Volume -- als solches
+                # melden, statt es als Anwendungsfehler auszugeben.
+                raise HTTPException(
+                    507,
+                    f"Die Datei konnte nicht abgelegt werden: {e.strerror or e}. "
+                    f"Bitte Plattenplatz und Schreibrechte des Volumes pruefen.",
+                )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

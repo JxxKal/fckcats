@@ -78,16 +78,40 @@ async def load_config(pool: asyncpg.Pool, user_id: int, dek: bytes) -> dict | No
 
 
 def plan_from_config(cfg: dict) -> Plan:
-    """Baut aus der gespeicherten Config den Verteilplan."""
-    elements = cfg.get("wbs_elements", [])
-    total = sum(e["weight"] for e in elements)
-    ops = [(e["wbs"], e["weight"] / total) for e in elements] if total > 0 else []
+    """Baut aus der gespeicherten Config den Verteilplan.
+
+    Fehlende oder unbrauchbare Eintraege werden uebergangen statt einen Fehler
+    auszuloesen: die Config kann aus einer aelteren Fassung stammen oder von
+    Hand geschrieben worden sein, und ein unvollstaendiges Element darf nicht
+    den ganzen Import scheitern lassen.
+    """
+    elements = [e for e in cfg.get("wbs_elements") or []
+                if isinstance(e, dict) and e.get("wbs")]
+    total = sum(float(e.get("weight") or 0) for e in elements)
+    ops = ([(e["wbs"], float(e.get("weight") or 0) / total) for e in elements]
+           if total > 0 else [])
+
+    projects = []
+    for entry in cfg.get("projects") or []:
+        if not isinstance(entry, dict) or not entry.get("wbs"):
+            continue
+        try:
+            hours = float(entry.get("max_hours_per_week") or 0)
+        except (TypeError, ValueError):
+            continue
+        if hours > 0:
+            projects.append((entry["wbs"], hours))
+
+    try:
+        ops_min = float(cfg.get("operations_min_pct") or 0)
+    except (TypeError, ValueError):
+        ops_min = 0.0
+
     return Plan(
         ops=ops,
-        projects=[(p["wbs"], float(p["max_hours_per_week"]))
-                  for p in cfg.get("projects", [])],
-        priority=cfg.get("priority", "projects"),
-        ops_min_pct=float(cfg.get("operations_min_pct", 0) or 0),
+        projects=projects,
+        priority=cfg.get("priority") or "projects",
+        ops_min_pct=ops_min,
     )
 
 
