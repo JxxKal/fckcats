@@ -125,7 +125,8 @@ export default function App() {
 
       <footer className="px-4 py-2 border-t border-cats-border text-cats-muted">
         Gebucht wird die Spalte <span className="font-mono">Prod.</span> des Zeitnachweises.
-        Die Tagessumme entspricht immer exakt der erfassten Arbeitszeit.
+        Die Tagessumme der gebuchten Zeilen stimmt immer exakt — abzüglich der Zeit,
+        die als nicht gebucht eingestellt ist.
       </footer>
     </div>
   )

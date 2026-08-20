@@ -119,6 +119,8 @@ async def recalculate(
                 "max_deviation_pp": round(r.max_deviation_pp, 1),
                 "project_hours": r.project_hours,
                 "ops_hours": r.ops_hours,
+                "unbooked_hours": r.unbooked_hours,
+                "bookable_hours": r.bookable_hours,
                 "projects_capped": r.projects_capped,
                 "ops_starved": r.ops_starved,
             }

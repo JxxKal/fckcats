@@ -30,19 +30,33 @@ async def list_entries(
     workdays = {w["work_date"]: w for w in await store.load_workdays(pool, user_id, dek)}
 
     weeks: dict[tuple[int, int], dict] = {}
-    for r in rows:
-        iso = r["work_date"].isocalendar()
-        key = (iso[0], iso[1])
-        week = weeks.setdefault(key, {
+
+    def week_of(work_date) -> dict:
+        iso = work_date.isocalendar()
+        return weeks.setdefault((iso[0], iso[1]), {
             "iso_year": iso[0],
             "iso_week": iso[1],
-            "hours": 0.0,
+            "hours": 0.0,            # gebuchte Stunden
+            "recorded_hours": 0.0,   # laut Zeitnachweis erfasst
             "days": set(),
             "per_wbs": {},
             "rows": [],
             "open_rows": 0,
             "exported_rows": 0,
         })
+
+    # Zuerst die erfasste Zeit -- auch fuer Tage, von denen wegen ungebuchter
+    # Zeit gar keine Zeile uebrig blieb.
+    for work_date, day in workdays.items():
+        if date_from and work_date < date_from:
+            continue
+        if date_to and work_date > date_to:
+            continue
+        w = week_of(work_date)
+        w["recorded_hours"] = round(w["recorded_hours"] + float(day.get("hours") or 0), 2)
+
+    for r in rows:
+        week = week_of(r["work_date"])
         hours = float(r["hours"])
         week["hours"] = round(week["hours"] + hours, 2)
         week["days"].add(r["work_date"])
@@ -69,11 +83,15 @@ async def list_entries(
     for key in sorted(weeks):
         w = weeks[key]
         w["days"] = len(w["days"])
+        # Was erfasst, aber keinem WBS-Element zugeordnet wurde.
+        w["unbooked_hours"] = round(max(0.0, w["recorded_hours"] - w["hours"]), 2)
         out.append(w)
 
     return {
         "weeks": out,
         "total_hours": round(sum(w["hours"] for w in out), 2),
+        "recorded_hours": round(sum(w["recorded_hours"] for w in out), 2),
+        "unbooked_hours": round(sum(w["unbooked_hours"] for w in out), 2),
         "open_hours": round(
             sum(r["hours"] for w in out for r in w["rows"] if not r["exported"]), 2
         ),

@@ -27,6 +27,8 @@ export interface CatsConfig {
   projects: ProjectElement[]
   priority: 'projects' | 'operations'
   operations_min_pct: number
+  /** Stunden je Woche, die keinem WBS-Element zugeordnet und nicht exportiert werden. */
+  unbooked_hours_per_week: number
   reason_rules: Record<string, 'book' | 'exclude'>
   version: number
   typical_week_hours: number
@@ -77,7 +79,12 @@ export interface EntryRow {
 export interface WeekGroup {
   iso_year: number
   iso_week: number
+  /** gebuchte Stunden */
   hours: number
+  /** laut Zeitnachweis erfasste Stunden */
+  recorded_hours: number
+  /** erfasst, aber keinem WBS-Element zugeordnet */
+  unbooked_hours: number
   days: number
   per_wbs: Record<string, number>
   rows: EntryRow[]
@@ -88,6 +95,8 @@ export interface WeekGroup {
 export interface EntriesResponse {
   weeks: WeekGroup[]
   total_hours: number
+  recorded_hours: number
+  unbooked_hours: number
   open_hours: number
 }
 

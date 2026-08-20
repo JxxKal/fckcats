@@ -48,7 +48,12 @@ sondern als Klärfall vorgelegt. Getroffene Entscheidungen merkt sich die App.
 möglichst groben Blöcken (4 h vor 2 h vor 1 h). Dabei gibt es zwei Gruppen:
 **Projekte** mit einer festen Obergrenze in Stunden je Woche werden zuerst bedient,
 **Operations** teilen sich nach Gewichtung, was übrig bleibt. Jede Woche sieht anders
-aus, die Tagessummen stimmen immer.
+aus, die gebuchten Tagessummen stimmen immer.
+
+**Zeit aussparen.** Wer Stunden hat, die zu keinem WBS-Element gehören — etwa
+Verwaltungstätigkeit — trägt sie als *nicht gebuchte Zeit* je Woche ein. Sie werden
+vor allem anderen abgezogen und tauchen in der XLSX nicht auf; die exportierte
+Stundensumme ist dann entsprechend kleiner als der Zeitnachweis.
 
 **Buchhaltung führen.** Die Zieltabelle liegt in der Datenbank, nicht in der Datei.
 Exportierte Zeilen sind markiert, ein korrigiertes PDF für einen bereits gebuchten
@@ -164,9 +169,10 @@ WBS-Arbeitsvorrat eintragen.
 
 ## Ablauf im Alltag
 
-1. **CATS-Config** — Personalnummer, Projekte mit Wochen-Obergrenze und gewichtete
-   Elemente (Summe 100 %). Die App rechnet vor, wie viele Stunden je Element in einer
-   vollen Woche anfallen, und warnt, wenn etwas unter die Mindestbuchung rutscht.
+1. **CATS-Config** — Personalnummer, nicht gebuchte Zeit, Projekte mit
+   Wochen-Obergrenze und gewichtete Elemente (Summe 100 %). Die App rechnet vor, wie
+   viele Stunden je Element in einer vollen Woche anfallen, und warnt, wenn etwas
+   unter die Mindestbuchung rutscht.
 2. **Import** — Zeitnachweis-PDF hochladen. Die Vorschau zeigt jeden Tag mit Status.
    Klärfälle abarbeiten, übernehmen.
 3. **Zieltabelle** — nach Woche gruppiert, mit Soll/Ist-Vergleich je WBS-Element.

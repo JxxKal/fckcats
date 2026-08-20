@@ -56,6 +56,9 @@ class CatsConfigRequest(BaseModel):
     priority: str = Field(default="projects", pattern="^(projects|operations)$")
     # Mindestanteil der Woche fuer Operations; greift nur bei Vorrang Operations
     operations_min_pct: float = Field(default=0, ge=0, le=100)
+    # Stunden je Woche, die keinem WBS-Element zugeordnet und nicht exportiert
+    # werden -- etwa Verwaltungstaetigkeit.
+    unbooked_hours_per_week: float = Field(default=0, ge=0, le=80)
     reason_rules: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("personnel_number")
@@ -107,11 +110,17 @@ def plan_from_config(cfg: dict) -> Plan:
     except (TypeError, ValueError):
         ops_min = 0.0
 
+    try:
+        unbooked = float(cfg.get("unbooked_hours_per_week") or 0)
+    except (TypeError, ValueError):
+        unbooked = 0.0
+
     return Plan(
         ops=ops,
         projects=projects,
         priority=cfg.get("priority") or "projects",
         ops_min_pct=ops_min,
+        unbooked_hours_per_week=max(0.0, unbooked),
     )
 
 
@@ -120,6 +129,23 @@ def check_plan(
 ) -> list[str]:
     """Plausibilitaetswarnungen -- blockieren das Speichern nicht."""
     warnings: list[str] = []
+
+    unbooked = body.unbooked_hours_per_week
+    if unbooked >= week_hours:
+        warnings.append(
+            f"Es sollen {unbooked:g} h je Woche nicht gebucht werden, die typische "
+            f"Wochenarbeitszeit betraegt aber nur {week_hours:g} h. In vollen Wochen "
+            f"bliebe dann nichts zu buechen uebrig."
+        )
+    elif unbooked > 0:
+        warnings.append(
+            f"{unbooked:g} h je Woche werden keinem WBS-Element zugeordnet und "
+            f"nicht exportiert. In einer vollen Woche gehen damit "
+            f"{week_hours - unbooked:g} h von {week_hours:g} h nach CATS."
+        )
+
+    # Was den WBS-Elementen ueberhaupt zur Verfuegung steht.
+    week_hours = max(0.0, week_hours - unbooked)
 
     project_hours = sum(p.max_hours_per_week for p in body.projects)
     if project_hours > week_hours:
@@ -195,6 +221,7 @@ async def get_config(
             "projects": [],
             "priority": "projects",
             "operations_min_pct": 0,
+            "unbooked_hours_per_week": 0,
             "reason_rules": {},
             "version": 0,
             "typical_week_hours": cfg.typical_week_hours,
@@ -207,6 +234,7 @@ async def get_config(
         "projects": row.get("projects", []),
         "priority": row.get("priority", "projects"),
         "operations_min_pct": row.get("operations_min_pct", 0),
+        "unbooked_hours_per_week": row.get("unbooked_hours_per_week", 0),
         "reason_rules": row.get("reason_rules", {}),
         "version": row["version"],
         "typical_week_hours": cfg.typical_week_hours,
@@ -225,6 +253,12 @@ async def save_config(
     if not body.wbs_elements and not body.projects:
         raise HTTPException(
             400, "Mindestens ein WBS-Element ist erforderlich, als Operations oder Projekt."
+        )
+    if body.unbooked_hours_per_week >= cfg.typical_week_hours:
+        raise HTTPException(
+            400,
+            f"Es koennen nicht {body.unbooked_hours_per_week:g} h je Woche ungebucht "
+            f"bleiben, wenn die Woche nur {cfg.typical_week_hours:g} h hat.",
         )
 
     # Die Gewichte teilen den Rest nach den Projekten auf, muessen aber unter
@@ -260,6 +294,7 @@ async def save_config(
         "projects": [p.model_dump() for p in body.projects],
         "priority": body.priority,
         "operations_min_pct": body.operations_min_pct,
+        "unbooked_hours_per_week": body.unbooked_hours_per_week,
         "reason_rules": body.reason_rules,
     })
     return {"version": version, "warnings": warnings}

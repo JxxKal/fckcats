@@ -132,7 +132,8 @@ export default function ImportPage({ onImported }: Props) {
                  onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f) }} />
           <p className="text-cats-muted">
             Gebucht wird die Spalte <span className="font-mono">Prod.</span> — die
-            Nettoarbeitszeit ohne Pause.
+            Nettoarbeitszeit ohne Pause. Ist in der CATS-Config nicht gebuchte Zeit
+            eingestellt, wird sie davon noch abgezogen.
           </p>
           {busy && <p className="text-cats-muted">Wird verarbeitet …</p>}
           {error && <p className="text-brand-red">{error}</p>}

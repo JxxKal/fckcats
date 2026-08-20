@@ -132,8 +132,22 @@ export default function EntriesPage() {
               <div className="num text-lg">{fmtHours(data.open_hours)} h</div>
             </div>
             <div>
-              <div className="label">gesamt</div>
+              <div className="label">gebucht</div>
               <div className="num text-lg">{fmtHours(data.total_hours)} h</div>
+            </div>
+            {data.unbooked_hours > 0 && (
+              <div>
+                <div className="label">nicht gebucht</div>
+                <div className="num text-lg text-cats-muted">
+                  {fmtHours(data.unbooked_hours)} h
+                </div>
+              </div>
+            )}
+            <div>
+              <div className="label">erfasst</div>
+              <div className="num text-lg text-cats-muted">
+                {fmtHours(data.recorded_hours)} h
+              </div>
             </div>
           </div>
         </div>
@@ -151,6 +165,8 @@ export default function EntriesPage() {
               <span>KW {week.iso_week} / {week.iso_year}</span>
               <span className="font-normal text-cats-muted">
                 {week.days} {week.days === 1 ? 'Tag' : 'Tage'} · {fmtHours(week.hours)} h
+                {week.unbooked_hours > 0 &&
+                  ` von ${fmtHours(week.recorded_hours)} h erfasst`}
               </span>
               {week.exported_rows > 0 && (
                 <span className="font-normal text-cats-muted">
@@ -213,12 +229,22 @@ export default function EntriesPage() {
                   })}
                 </tbody>
               </table>
-              {projectHours(week) > 0 && (
+              {(projectHours(week) > 0 || week.unbooked_hours > 0) && (
                 <p className="text-cats-muted">
-                  Davon {fmtHours(projectHours(week))} h auf Projekte und{' '}
-                  {fmtHours(opsBase(week))} h auf die gewichtete Verteilung — der
-                  Ist-Anteil der gewichteten Elemente bezieht sich auf diese{' '}
-                  {fmtHours(opsBase(week))} h.
+                  {week.unbooked_hours > 0 && (
+                    <>
+                      {fmtHours(week.unbooked_hours)} h der erfassten{' '}
+                      {fmtHours(week.recorded_hours)} h werden keinem WBS-Element
+                      zugeordnet und nicht exportiert.{' '}
+                    </>
+                  )}
+                  {projectHours(week) > 0 && (
+                    <>
+                      Von den gebuchten {fmtHours(week.hours)} h gehen{' '}
+                      {fmtHours(projectHours(week))} h auf Projekte und{' '}
+                      {fmtHours(opsBase(week))} h in die gewichtete Verteilung.
+                    </>
+                  )}
                 </p>
               )}
 

@@ -126,6 +126,10 @@ markiert und im UI ausgewiesen.
 
 - **Personalnummer** — z. B. `00123456`. Wird beim PDF-Import gegen den Kopf geprüft;
   Abweichung → Warnung.
+- **Nicht gebuchte Zeit** — Stunden je Woche, die keinem WBS-Element zugeordnet und
+  nicht exportiert werden, etwa Verwaltungstätigkeit. Sie werden vor allem anderen
+  abgezogen.
+
 Der Arbeitsvorrat besteht aus zwei Gruppen:
 
 - **Projekte** — WBS-Element + Obergrenze in Stunden je Woche. Werden zuerst bedient.
@@ -169,11 +173,14 @@ Dazu:
 **Slice-Präferenz:** möglichst grobe Blöcke — Leiter `4 h → 2 h → 1 h`, der krumme
 Rest des Tages landet in einem Slice (`4,00 + 2,00 + 0,82`).
 
-### Wochenziele: Projekte vor Gewichtung
+### Wochenziele: erst abziehen, dann verteilen
 
 Vor der Verteilung wird je Woche ausgerechnet, wie viele Stunden jedes WBS-Element
 bekommen soll:
 
+0. **Nicht gebuchte Zeit abziehen.** Was der Benutzer als ungebucht angegeben hat,
+   wird anteilig zur Wochenlänge gekürzt und steht der Verteilung nicht mehr zur
+   Verfügung — weder den Projekten noch der Gewichtung.
 1. **Projekte zuerst.** Die Obergrenze wird anteilig zur Wochenlänge gekürzt:
    `Obergrenze × Arbeitstage / 5`. Eine Randwoche mit zwei Tagen trägt also 40 % des
    Projektblocks — sonst würde ein 10-h-Projekt eine 12-h-Woche fast allein füllen.
@@ -188,6 +195,21 @@ bekommen soll:
 Der Übertrag gilt **nur für Operations**. Bei Projekten ist die Angabe eine
 Obergrenze und kein Soll: eine Woche, in der weniger anfiel, darf die nächste nicht
 aufblähen.
+
+### Nicht gebuchte Zeit
+
+Technisch läuft sie als Platzhalter durch dieselbe Verteilung wie ein Projekt: sie
+bindet Stunden an einzelnen Tagen, fällt aber vor dem Erzeugen der Zeilen wieder
+heraus. Dadurch bleibt die Blockstruktur der übrigen Buchungen erhalten.
+
+**Folge für die XLSX:** Sie enthält dann weniger Stunden als der Zeitnachweis. Die
+Tagessumme entspricht exakt der erfassten Zeit **abzüglich** der ungebuchten — was
+gebucht wird, stimmt weiterhin auf die Stunde.
+
+Weil die Verteilung in groben Blöcken arbeitet, ist die tatsächlich ungebuchte
+Stundenzahl ein Richtwert: bei 4 h je Woche und einer Woche mit nur einem Arbeitstag
+blieben statt der rechnerischen 0,80 h etwa 0,55 h ungebucht. Über den Zeitraum
+gleicht sich das aus.
 
 Rechenbeispiel bei 38 h Wochenarbeitszeit, Projekte 10 h und 6 h, Operations 60/40:
 
@@ -391,8 +413,9 @@ zugeteilten WBS-Elemente.
 ```
 Login (SAML oder lokal)
   └─ Dashboard: offene Stunden, letzter Export, Warnungen
-  └─ CATS-Config: Personalnummer, Projekte mit Wochen-Obergrenze,
-       gewichtete Elemente, Vorrang bei Knappheit, Grund-Entscheidungen
+  └─ CATS-Config: Personalnummer, nicht gebuchte Zeit, Projekte mit
+       Wochen-Obergrenze, gewichtete Elemente, Vorrang bei Knappheit,
+       Grund-Entscheidungen
   └─ Import: PDF hochladen
        └─ Vorschau: erkannte Tage, ausgeschlossene Tage mit Grund
        └─ Klärfälle: unbekannte Gründe + fehlende Buchungen abarbeiten

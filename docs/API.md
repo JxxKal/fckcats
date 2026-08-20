@@ -68,9 +68,15 @@ enthält `warnings` mit Elementen, deren Gewichtung unter der Mindestbuchung lie
   ],
   "priority": "projects",
   "operations_min_pct": 0,
+  "unbooked_hours_per_week": 0,
   "reason_rules": {"Dienstreise": "book"}
 }
 ```
+
+`unbooked_hours_per_week` sind Stunden je Woche, die keinem WBS-Element zugeordnet
+und nicht exportiert werden. Sie werden vor Projekten und Gewichtung abgezogen und
+in kürzeren Wochen anteilig gekürzt. Liegt der Wert bei oder über der typischen
+Wochenarbeitszeit, antwortet der Endpunkt mit **400**.
 
 `projects` tragen eine Obergrenze in Stunden je Woche und werden zuerst bedient;
 `wbs_elements` teilen sich nach Gewicht, was übrig bleibt. `priority` entscheidet bei
@@ -114,6 +120,11 @@ gekennzeichnet. `remember_reason` merkt die Entscheidung dauerhaft in der Config
 | Methode | Pfad | Zweck |
 |---|---|---|
 | `GET` | `/api/entries` | Nach ISO-Woche gruppiert, mit Soll/Ist je WBS-Element |
+
+Die Antwort weist neben den gebuchten Stunden (`total_hours`) auch die erfassten
+(`recorded_hours`) und die Differenz (`unbooked_hours`) aus, je Woche und in der
+Summe.
+
 | `GET` | `/api/entries/workdays` | Validierte Tagesliste |
 | `POST` | `/api/entries/recalculate` | Offene Zeilen neu verteilen |
 | `GET` | `/api/entries/history` | Protokoll ersetzter Zeilen |

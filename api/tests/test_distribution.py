@@ -248,3 +248,57 @@ def test_bericht_weist_projekt_und_operationsstunden_aus():
 def test_leerer_plan_liefert_nichts():
     targets, _ = compute_targets(38.0, 5, Plan())
     assert targets == {}
+
+
+# ── Nicht gebuchte Zeit ──────────────────────────────────────────────────────
+
+def test_nicht_gebuchte_zeit_wird_zuerst_abgezogen():
+    from distribution import UNBOOKED
+    plan = Plan(ops=OPS2, projects=[("PRJ-1", 10.0)], unbooked_hours_per_week=4.0)
+    targets, meta = compute_targets(38.0, 5, plan)
+    assert meta["unbooked_hours"] == 4.0
+    assert targets[UNBOOKED] == 4.0
+    assert targets["PRJ-1"] == 10.0
+    # Operations teilt den Rest: 38 - 4 - 10 = 24 h in 60/40
+    assert abs(targets["OPS-A"] - 14.4) < 0.01
+    assert abs(targets["OPS-B"] - 9.6) < 0.01
+    assert abs(sum(targets.values()) - 38.0) < 0.01
+
+
+def test_platzhalter_taucht_nicht_in_den_zeilen_auf():
+    from distribution import UNBOOKED
+    plan = Plan(ops=OPS2, unbooked_hours_per_week=5.0)
+    allocations, reports = plan_range(VOLLE_WOCHE, plan, seed=42)
+    assert all(a.wbs_element != UNBOOKED for a in allocations)
+    # Was gebucht wurde, ist um die ungebuchte Zeit kleiner als das Erfasste.
+    erfasst = sum(h for _, h in VOLLE_WOCHE)
+    gebucht = sum(a.hours for a in allocations)
+    assert abs(erfasst - gebucht - reports[0].unbooked_hours) < 0.02
+
+
+def test_ungebuchte_zeit_anteilig_in_randwochen():
+    plan = Plan(ops=OPS2, unbooked_hours_per_week=5.0)
+    _, meta = compute_targets(12.68, 2, plan)
+    assert abs(meta["unbooked_hours"] - 2.0) < 0.01     # 5 h * 2/5
+
+
+def test_ungebuchte_zeit_kann_die_woche_nicht_uebersteigen():
+    plan = Plan(ops=OPS2, unbooked_hours_per_week=40.0)
+    targets, meta = compute_targets(8.0, 1, plan)
+    # 40 h * 1/5 = 8 h, genau die Wochenstunden -- nichts bleibt zu verteilen
+    assert meta["unbooked_hours"] <= 8.0
+    assert all(v <= 8.0 for v in targets.values())
+
+
+def test_ohne_angabe_aendert_sich_nichts():
+    ohne = Plan(ops=OPS2, projects=[("PRJ-1", 10.0)])
+    mit_null = Plan(ops=OPS2, projects=[("PRJ-1", 10.0)], unbooked_hours_per_week=0.0)
+    assert compute_targets(38.0, 5, ohne)[0] == compute_targets(38.0, 5, mit_null)[0]
+
+
+def test_bericht_weist_gebuchte_und_ungebuchte_stunden_aus():
+    plan = Plan(ops=OPS2, unbooked_hours_per_week=4.0)
+    _, reports = plan_range(VOLLE_WOCHE, plan, seed=3)
+    r = reports[0]
+    assert abs(r.bookable_hours - (r.hours - r.unbooked_hours)) < 0.01
+    assert abs(r.ops_hours - r.bookable_hours) < 0.02

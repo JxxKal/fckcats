@@ -31,8 +31,13 @@ from datetime import date
 LADDER = [4.0, 2.0, 1.0]
 MAX_SLICES_PER_DAY = 4
 MIN_SLICE_HOURS = 1.0
-# Bezugsgroesse fuer die anteilige Kuerzung der Projektstunden.
+# Bezugsgroesse fuer die anteilige Kuerzung der Projekt- und Verwaltungsstunden.
 FULL_WEEK_DAYS = 5
+
+# Platzhalter fuer Zeit, die keinem WBS-Element zugeordnet und nicht gebucht
+# wird -- etwa Verwaltungstaetigkeit. Sie belegt bei der Verteilung Stunden wie
+# ein Projekt, faellt aber vor dem Erzeugen der Zeilen wieder heraus.
+UNBOOKED = "\x00unbooked"
 # Wie viele Zufallsvarianten durchgerechnet werden, bevor die beste gewinnt.
 DEFAULT_CANDIDATES = 200
 
@@ -53,11 +58,16 @@ class Plan:
     priority  'projects' oder 'operations'
     ops_min_pct  Mindestanteil der Woche fuer Operations; greift nur bei
                  Vorrang fuer Operations
+    unbooked_hours_per_week
+                 Stunden je voller Woche, die keinem WBS-Element zugeordnet
+                 und nicht exportiert werden
     """
     ops: list[tuple[str, float]] = field(default_factory=list)
     projects: list[tuple[str, float]] = field(default_factory=list)
     priority: str = "projects"
     ops_min_pct: float = 0.0
+    # Stunden je voller Woche, die nicht gebucht werden.
+    unbooked_hours_per_week: float = 0.0
 
 
 @dataclass
@@ -71,16 +81,28 @@ class WeekReport:
     target_per_wbs: dict[str, float]
     project_hours: float = 0.0        # tatsaechlich an Projekte vergeben
     ops_hours: float = 0.0            # tatsaechlich an Operations vergeben
+    unbooked_hours: float = 0.0       # bewusst nicht gebucht
     projects_capped: bool = False     # Obergrenzen mussten gekuerzt werden
     ops_starved: bool = False         # Operations ging leer aus
 
     @property
+    def bookable_hours(self) -> float:
+        """Wochenstunden abzueglich der bewusst nicht gebuchten."""
+        return round(self.hours - self.unbooked_hours, 2)
+
+    @property
     def max_deviation_pp(self) -> float:
-        """Groesste Abweichung in Prozentpunkten."""
-        if not self.hours:
+        """Groesste Abweichung in Prozentpunkten.
+
+        Bezugsgroesse sind die gebuchten Stunden -- die nicht gebuchte Zeit
+        gehoert keinem WBS-Element und wuerde die Anteile sonst verzerren.
+        """
+        base = self.bookable_hours
+        if base <= 0:
             return 0.0
         return max(
-            (abs(self.per_wbs.get(k, 0.0) - v) / self.hours * 100 for k, v in self.target_per_wbs.items()),
+            (abs(self.per_wbs.get(k, 0.0) - v) / base * 100
+             for k, v in self.target_per_wbs.items()),
             default=0.0,
         )
 
@@ -103,24 +125,39 @@ def compute_targets(
     anfiel, darf die naechste nicht aufblaehen.
     """
     carry = carry or {}
-    meta = {"project_hours": 0.0, "ops_hours": 0.0,
+    meta = {"project_hours": 0.0, "ops_hours": 0.0, "unbooked_hours": 0.0,
             "projects_capped": False, "ops_starved": False}
     if hours_total <= 0:
         return {}, meta
 
     # Anteil dieser Woche an einer vollen Arbeitswoche.
     share = min(1.0, day_count / FULL_WEEK_DAYS) if day_count else 0.0
+
+    # Zuerst die Zeit abziehen, die gar nicht gebucht wird. Sie steht keinem
+    # WBS-Element zur Verfuegung, also darf sie auch nicht in die Verteilung
+    # eingehen -- weder bei den Projekten noch bei der Gewichtung.
+    unbooked = min(
+        round(plan.unbooked_hours_per_week * share, 4),
+        hours_total,
+    ) if plan.unbooked_hours_per_week > 0 else 0.0
+    distributable = round(hours_total - unbooked, 4)
+    meta["unbooked_hours"] = round(unbooked, 2)
+
+    if distributable <= 0.005:
+        # Die ganze Woche geht in nicht gebuchte Zeit.
+        return ({UNBOOKED: round(hours_total, 4)} if unbooked > 0 else {}), meta
+
     wanted = {wbs: max_hours * share for wbs, max_hours in plan.projects}
     total_wanted = sum(wanted.values())
 
     # Wie viel duerfen die Projekte hoechstens belegen?
     if plan.ops and plan.priority == "operations" and plan.ops_min_pct > 0:
-        budget = hours_total * (1.0 - plan.ops_min_pct / 100.0)
+        budget = distributable * (1.0 - plan.ops_min_pct / 100.0)
     else:
-        budget = hours_total
-    # Ohne Operations-Elemente duerfen die Projekte die ganze Woche fuellen.
+        budget = distributable
+    # Ohne Operations-Elemente duerfen die Projekte alles Verteilbare fuellen.
     if not plan.ops:
-        budget = hours_total
+        budget = distributable
 
     if total_wanted > budget + 0.005 and total_wanted > 0:
         # Anteilig kuerzen, im Verhaeltnis der Obergrenzen zueinander.
@@ -130,8 +167,10 @@ def compute_targets(
 
     targets = {k: round(v, 4) for k, v in wanted.items() if v > 0.005}
     project_hours = sum(targets.values())
-    rest = round(hours_total - project_hours, 4)
+    rest = round(distributable - project_hours, 4)
     meta["project_hours"] = round(project_hours, 2)
+    if unbooked > 0.005:
+        targets[UNBOOKED] = round(unbooked, 4)
 
     if plan.ops and rest > 0.005:
         weight_sum = sum(w for _, w in plan.ops) or 1.0
@@ -236,10 +275,17 @@ def plan_range(
         hours_total = round(sum(h for _, h in week_days), 2)
         targets, meta = compute_targets(hours_total, len(week_days), plan, carry)
         rows, _ = plan_week(week_days, targets, rng)
-        allocations.extend(rows)
+
+        # Die Platzhalter-Zeilen fallen hier heraus: sie haben ihre Stunden bei
+        # der Verteilung gebunden, gehoeren aber keinem WBS-Element und duerfen
+        # nicht exportiert werden.
+        booked = [a for a in rows if a.wbs_element != UNBOOKED]
+        unbooked_hours = round(
+            sum(a.hours for a in rows if a.wbs_element == UNBOOKED), 2)
+        allocations.extend(booked)
 
         per_wbs: dict[str, float] = {}
-        for a in rows:
+        for a in booked:
             per_wbs[a.wbs_element] = round(per_wbs.get(a.wbs_element, 0.0) + a.hours, 2)
 
         # Was Operations diese Woche nicht bekommen hat, geht in die naechste.
@@ -254,7 +300,9 @@ def plan_range(
             days=len(week_days),
             hours=hours_total,
             per_wbs=per_wbs,
-            target_per_wbs={k: round(v, 2) for k, v in targets.items()},
+            target_per_wbs={k: round(v, 2) for k, v in targets.items()
+                            if k != UNBOOKED},
+            unbooked_hours=unbooked_hours,
             project_hours=round(
                 sum(h for w, h in per_wbs.items() if w not in ops_names), 2),
             ops_hours=round(

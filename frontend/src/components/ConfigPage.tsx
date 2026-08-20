@@ -11,6 +11,7 @@ export default function ConfigPage() {
   const [projects, setProjects] = useState<ProjectElement[]>([])
   const [priority, setPriority] = useState<'projects' | 'operations'>('projects')
   const [opsMinPct, setOpsMinPct] = useState(0)
+  const [unbooked, setUnbooked] = useState(0)
   const [rules, setRules] = useState<Record<string, 'book' | 'exclude'>>({})
   const [warnings, setWarnings] = useState<string[]>([])
   const [error, setError] = useState('')
@@ -27,6 +28,7 @@ export default function ConfigPage() {
     setProjects(c.projects ?? [])
     setPriority(c.priority ?? 'projects')
     setOpsMinPct(c.operations_min_pct ?? 0)
+    setUnbooked(c.unbooked_hours_per_week ?? 0)
     setRules(c.reason_rules)
   }
 
@@ -35,12 +37,15 @@ export default function ConfigPage() {
   const totalOk = elements.length === 0 || Math.abs(total - 100) < 0.01
   const projectHours = projects.reduce((s, p) => s + (Number(p.max_hours_per_week) || 0), 0)
 
+  // Was nach Abzug der ungebuchten Zeit überhaupt zu verteilen ist.
+  const distributable = Math.max(0, weekHours - (Number(unbooked) || 0))
+
   // Was den gewichteten Elementen in einer vollen Woche bleibt.
   const projectCap = priority === 'operations' && opsMinPct > 0
-    ? weekHours * (1 - opsMinPct / 100)
-    : weekHours
+    ? distributable * (1 - opsMinPct / 100)
+    : distributable
   const projectsEffective = Math.min(projectHours, projectCap)
-  const opsHours = Math.max(0, weekHours - projectsEffective)
+  const opsHours = Math.max(0, distributable - projectsEffective)
   const overbooked = projectHours > projectCap + 0.001
 
   function touch() { setSaved(false) }
@@ -64,6 +69,7 @@ export default function ConfigPage() {
         projects: projects.filter(p => p.wbs.trim()),
         priority,
         operations_min_pct: opsMinPct,
+        unbooked_hours_per_week: unbooked,
         reason_rules: rules,
       })
       setWarnings(res.warnings)
@@ -92,7 +98,36 @@ export default function ConfigPage() {
         </div>
       </div>
 
-      {/* Projekte zuerst — sie werden auch bei der Verteilung zuerst bedient. */}
+      <div className="panel">
+        <div className="panel-head">Nicht gebuchte Zeit</div>
+        <div className="panel-body space-y-2">
+          <p className="text-cats-muted">
+            Stunden je Woche, die keinem WBS-Element zugeordnet und nicht nach CATS
+            exportiert werden — etwa Verwaltungstätigkeit. Sie werden vor allem
+            anderen abgezogen; erst der Rest geht an Projekte und die gewichtete
+            Verteilung.
+          </p>
+          <div className="flex items-center gap-2">
+            <input type="number" step="0.5" min="0" max={weekHours}
+                   className="field-key w-24 text-right" value={unbooked}
+                   onChange={e => { setUnbooked(Number(e.target.value)); touch() }} />
+            <span>h / Woche</span>
+            <span className="text-cats-muted">
+              bei 2 von 5 Tagen {fmtHours((Number(unbooked) || 0) * 2 / FULL_WEEK_DAYS)} h
+            </span>
+          </div>
+          {unbooked > 0 && (
+            <p className={distributable < 1 ? 'text-brand-red' : 'text-cats-muted'}>
+              In einer Woche mit {weekHours} h gehen damit{' '}
+              <strong>{fmtHours(distributable)} h</strong> nach CATS, {fmtHours(unbooked)} h
+              bleiben ungebucht. Die exportierte Stundensumme ist entsprechend kleiner
+              als der Zeitnachweis.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Projekte vor Operations — so werden sie auch verteilt. */}
       <div className="panel">
         <div className="panel-head">Projekte</div>
         <div className="panel-body space-y-3">
@@ -100,7 +135,8 @@ export default function ConfigPage() {
             WBS-Elemente mit einer festen Obergrenze in Stunden je Woche. Sie werden
             zuerst bedient; erst was übrig bleibt, geht in die gewichtete Verteilung.
             In kürzeren Wochen wird die Obergrenze anteilig gekürzt — bei zwei von
-            fünf Arbeitstagen also auf 40 %.
+            fünf Arbeitstagen also auf 40 %. Verfügbar sind in einer vollen Woche{' '}
+            {fmtHours(distributable)} h.
           </p>
 
           {projects.length > 0 && (
@@ -170,9 +206,10 @@ export default function ConfigPage() {
         <div className="panel-head">Operations oder andere gewichtet verteilte WBS-Elemente</div>
         <div className="panel-body space-y-3">
           <p className="text-cats-muted">
-            Diese Elemente teilen unter sich auf, was nach den Projekten übrig bleibt —
-            in einer vollen Woche also rund <strong>{fmtHours(opsHours)} h</strong>.
-            Die Gewichtungen müssen zusammen 100 % ergeben.
+            Diese Elemente teilen unter sich auf, was nach der ungebuchten Zeit und
+            den Projekten übrig bleibt — in einer vollen Woche also rund{' '}
+            <strong>{fmtHours(opsHours)} h</strong>. Die Gewichtungen müssen zusammen
+            100 % ergeben.
           </p>
 
           {elements.length > 0 && (
