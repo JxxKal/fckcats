@@ -192,7 +192,18 @@ python3 api/tests/run_tests.py     # ohne pytest
 pytest api/tests                   # mit pytest
 ```
 
-39 Tests über Parser, Verteilung und XLSX-Erzeugung. Das Test-PDF unter
+61 Tests über Parser, Verteilung, Verschlüsselung und XLSX-Erzeugung.
+
+Dazu ein Durchlauf über alle Endpunkte gegen eine **laufende** Instanz:
+
+```bash
+python3 api/tests/smoke_test.py http://localhost:8080 admin DeinPasswort
+```
+
+Am aussagekräftigsten gegen eine **frisch angelegte** Datenbank — dort fällt auf,
+wenn Schema und Code auseinanderlaufen. Auf einer gewachsenen Datenbank bleibt so
+etwas unbemerkt, weil `CREATE TABLE IF NOT EXISTS` bestehende Tabellen nicht
+anfasst. Das Test-PDF unter
 `api/tests/fixtures/` ist synthetisch und lässt sich mit
 `python3 api/tests/make_fixture_pdf.py` neu erzeugen (benötigt `reportlab`).
 

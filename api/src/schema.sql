@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS uploads (
     id            BIGSERIAL PRIMARY KEY,
     user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     stored_path   TEXT   NOT NULL,
+    -- Pruefsumme der hochgeladenen Datei; erkennt denselben Zeitnachweis wieder.
+    sha256        TEXT,
     -- Verschluesselt: {"filename": "...", "personnel_number": "...",
     --                  "period_month": 7, "period_year": 2026, "days": [...],
     --                  "warnings": [...]}
@@ -76,6 +78,7 @@ CREATE TABLE IF NOT EXISTS uploads (
     uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     committed_at  TIMESTAMPTZ                -- NULL = Vorschau, noch nicht uebernommen
 );
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS sha256 TEXT;
 CREATE INDEX IF NOT EXISTS uploads_user_idx ON uploads (user_id, uploaded_at DESC);
 
 -- ── Validierte Tagesliste ────────────────────────────────────────────────────

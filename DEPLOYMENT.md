@@ -316,6 +316,17 @@ docker compose logs -f api
 curl -s http://localhost:${HTTP_PORT:-80}/api/health
 ```
 
+**Nach der Installation prüfen.** Ein Durchlauf über alle Endpunkte:
+
+```bash
+python3 api/tests/smoke_test.py http://localhost:${HTTP_PORT:-80} admin DeinPasswort
+```
+
+Der Test legt einen eigenen Benutzer an, arbeitet in dessen Workspace und
+deaktiviert ihn zum Schluss; vorhandene Daten bleiben unberührt. Gerade bei einer
+Neuinstallation lohnt er sich, weil er Abweichungen zwischen Schema und Code
+aufdeckt, die auf einer gewachsenen Datenbank nicht auffallen.
+
 **API-Dokumentation.** Die laufende Instanz stellt sie selbst bereit:
 
 | Adresse | Inhalt |
