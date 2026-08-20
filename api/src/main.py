@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 
@@ -115,14 +116,19 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
         "Unbehandelter Fehler [%s] bei %s %s",
         error_id, request.method, request.url.path,
     )
-    return JSONResponse(
-        {
-            "detail": "Unerwarteter Fehler in der Anwendung. Die Einzelheiten stehen "
-                      f"im Protokoll des api-Containers unter der Kennung {error_id}.",
-            "error_id": error_id,
-        },
-        status_code=500,
-    )
+    body: dict = {
+        "detail": "Unerwarteter Fehler in der Anwendung. Die Einzelheiten stehen "
+                  f"im Protokoll des api-Containers unter der Kennung {error_id}.",
+        "error_id": error_id,
+        "error_type": type(exc).__name__,
+        "error_message": str(exc)[:300],
+    }
+    if cfg.debug_errors:
+        # Nur mit DEBUG_ERRORS=true: der vollstaendige Traceback wandert in die
+        # Antwort. Damit laesst sich der Fehler dort ablesen, wo er auftritt,
+        # ohne ins Container-Protokoll zu steigen.
+        body["traceback"] = traceback.format_exception(exc)
+    return JSONResponse(body, status_code=500)
 
 
 @app.exception_handler(crypto.CryptoError)

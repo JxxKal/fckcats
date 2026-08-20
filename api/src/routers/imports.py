@@ -93,12 +93,28 @@ async def upload_pdf(
     # Auch fuer die Auswertung braucht pdftotext eine Datei. Im Modus
     # 'ephemeral' liegt sie nur waehrend des Aufrufs in einem temporaeren
     # Verzeichnis und wird danach entfernt; nichts bleibt auf der Platte.
-    tmp_dir = tempfile.mkdtemp(prefix="fckcats-")
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="fckcats-")
+    except OSError as e:
+        raise HTTPException(
+            507,
+            f"Kein temporaeres Verzeichnis anlegbar: {e.strerror or e}. "
+            f"Meist ist die Platte des Hosts voll -- 'df -h' und "
+            f"'docker system df' geben Auskunft.",
+        )
+
     tmp_pdf = os.path.join(tmp_dir, "sheet.pdf")
     target: str | None = None
     try:
-        with open(tmp_pdf, "wb") as f:
-            f.write(payload)
+        try:
+            with open(tmp_pdf, "wb") as f:
+                f.write(payload)
+        except OSError as e:
+            raise HTTPException(
+                507,
+                f"Das PDF konnte nicht zwischengespeichert werden: "
+                f"{e.strerror or e}. Meist ist die Platte des Hosts voll.",
+            )
         try:
             sheet = parse_text(pdf_to_text(tmp_pdf), rules)
         except RuntimeError as e:

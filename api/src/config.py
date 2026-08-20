@@ -13,6 +13,7 @@ class Config:
     cert_dir: str
     data_dir: str
     typical_week_hours: float
+    debug_errors: bool
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -28,4 +29,8 @@ class Config:
             cert_dir=os.environ.get("CERT_DIR", "/certs"),
             data_dir=os.environ.get("DATA_DIR", "/data"),
             typical_week_hours=float(os.environ.get("TYPICAL_WEEK_HOURS", "38")),
+            # Legt bei unerwarteten Fehlern den Traceback in die Antwort. Nur
+            # zur Fehlersuche gedacht, etwa auf Rechnern ohne bequemen Zugriff
+            # auf das Container-Protokoll.
+            debug_errors=os.environ.get("DEBUG_ERRORS", "false").lower() == "true",
         )

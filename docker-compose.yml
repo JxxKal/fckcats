@@ -43,6 +43,7 @@ services:
       CERT_DIR:  /certs
       DATA_DIR:  /data
       TYPICAL_WEEK_HOURS: ${TYPICAL_WEEK_HOURS:-38}
+      DEBUG_ERRORS: ${DEBUG_ERRORS:-false}
       # Proxy zur Laufzeit, etwa fuer den Bezug von ACME-Zertifikaten.
       # postgres muss ausgenommen sein, sonst laeuft der Datenbankverkehr
       # ueber den Proxy und scheitert.
