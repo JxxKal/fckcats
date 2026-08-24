@@ -44,8 +44,13 @@ Falle, in die eine naive Auswertung tappt.
 oder ein Tag mit vergessener Kommen-/Gehen-Buchung wird nicht stillschweigend gebucht,
 sondern als Klärfall vorgelegt. Getroffene Entscheidungen merkt sich die App.
 
+**Von Hand nachbessern.** Die Vorschau ist vollständig bearbeitbar: Stunden ändern,
+Tage ab- oder zuwählen, fehlende Tage ergänzen. Was angepasst wurde, ist als solches
+gekennzeichnet.
+
 **Verteilen.** Die Stunden werden je ISO-Woche auf die WBS-Elemente verteilt, in
-möglichst groben Blöcken (4 h vor 2 h vor 1 h). Dabei gibt es zwei Gruppen:
+möglichst groben Blöcken (4 h vor 2 h vor 1 h), keine Zeile unter 0,5 h — darunter
+lehnt CATS die Buchung ab. Dabei gibt es zwei Gruppen:
 **Projekte** mit einer festen Obergrenze in Stunden je Woche werden zuerst bedient,
 **Operations** teilen sich nach Gewichtung, was übrig bleibt. Jede Woche sieht anders
 aus, die gebuchten Tagessummen stimmen immer.

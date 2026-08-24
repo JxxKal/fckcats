@@ -1,10 +1,30 @@
-import { useState } from 'react'
-import { api, ApiError, fmtDate, fmtHours } from '../api'
-import type { ParsedDay, UploadResult } from '../types'
+import { useMemo, useState } from 'react'
+import { api, ApiError, fmtDate, fmtHours, weekdayOf } from '../api'
+import type { UploadResult } from '../types'
 
-interface Decision {
-  action: 'book' | 'exclude'
+/** CATS nimmt keine Buchungen unter einer halben Stunde an. */
+const MIN_BOOKABLE = 0.5
+
+/** Zustand einer Zeile in der bearbeitbaren Tagesliste. */
+interface Row {
+  work_date: string
+  weekday: string
+  /** Anzeigewerte aus dem PDF, leer bei ergänzten Zeilen. */
+  time_from: string | null
+  time_to: string | null
+  hours_gross: number | null
+  reason: string
+  /** Grund, warum der Tag nicht automatisch gebucht wird. */
+  problem: 'unknown_reason' | 'incomplete' | 'excluded' | null
+  /** Wird der Tag gebucht? */
+  book: boolean
+  /** Eingegebene Stunden als Text, damit ein Komma erlaubt ist. */
   hours: string
+  /** Vom PDF vorgeschlagene Stunden. */
+  suggested: number | null
+  /** Vom Benutzer angefasst oder ergänzt. */
+  touched: boolean
+  added: boolean
   remember: boolean
 }
 
@@ -12,30 +32,66 @@ interface Props {
   onImported: () => void
 }
 
+const parseHours = (value: string): number | null => {
+  const n = Number(value.replace(',', '.'))
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null
+}
+
+function toRows(result: UploadResult): Row[] {
+  return result.days
+    .filter(d => d.work_date)
+    .map(d => ({
+      work_date: d.work_date!,
+      weekday: d.weekday,
+      time_from: d.time_from,
+      time_to: d.time_to,
+      hours_gross: d.hours_gross,
+      reason: d.reason,
+      problem: d.unknown_reason ? 'unknown_reason'
+             : d.incomplete ? 'incomplete'
+             : d.bookable ? null : 'excluded',
+      book: d.bookable,
+      hours: fmtHours(d.hours_net || d.hours_target || null),
+      suggested: d.hours_net,
+      touched: false,
+      added: false,
+      remember: Boolean(d.reason) && d.unknown_reason,
+    }))
+}
+
 export default function ImportPage({ onImported }: Props) {
   const [result, setResult] = useState<UploadResult | null>(null)
-  const [decisions, setDecisions] = useState<Record<string, Decision>>({})
+  const [rows, setRows] = useState<Row[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState<string>('')
+  const [done, setDone] = useState('')
+
+  const summe = useMemo(
+    () => rows.filter(r => r.book)
+              .reduce((s, r) => s + (parseHours(r.hours) ?? 0), 0),
+    [rows])
+  // Ein Klaerfall bleibt offen, bis der Benutzer ihn anfasst -- auch wenn die
+  // Voreinstellung "nicht buchen" lautet. Sonst fiele ein Tag mit vergessener
+  // Buchung stillschweigend unter den Tisch.
+  const offen = rows.filter(
+    r => (r.problem === 'unknown_reason' || r.problem === 'incomplete') && !r.touched)
+  const zuKlein = rows.filter(r => {
+    if (!r.book) return false
+    const h = parseHours(r.hours)
+    return h !== null && h < MIN_BOOKABLE
+  })
+  const ohneStunden = rows.filter(r => r.book && parseHours(r.hours) === null)
+
+  function patch(index: number, änderung: Partial<Row>) {
+    setRows(prev => prev.map((r, i) => (i === index ? { ...r, ...änderung, touched: true } : r)))
+  }
 
   async function upload(file: File) {
     setError(''); setDone(''); setBusy(true)
     try {
       const res = await api.upload<UploadResult>('/api/imports', file)
       setResult(res)
-      const init: Record<string, Decision> = {}
-      for (const c of res.clarifications) {
-        if (c.work_date) {
-          init[c.work_date] = {
-            action: 'book',
-            // Komma wie im Rest der Oberflaeche; beim Senden zurueckgewandelt.
-            hours: fmtHours(c.hours_net ?? c.hours_target ?? null),
-            remember: Boolean(c.reason),
-          }
-        }
-      }
-      setDecisions(init)
+      setRows(toRows(res))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Upload fehlgeschlagen')
     } finally {
@@ -43,54 +99,41 @@ export default function ImportPage({ onImported }: Props) {
     }
   }
 
-  /** Ohne Speicherung: Verteilung und XLSX in einem Zug, nichts bleibt liegen. */
-  async function exportDirect() {
-    if (!result) return
-    setError(''); setBusy(true)
-    try {
-      const days = result.days
-        .filter(d => d.work_date && d.bookable)
-        .map(d => ({ work_date: d.work_date!, hours: d.hours_net! }))
-      for (const [work_date, d] of Object.entries(decisions)) {
-        if (d.action !== 'book') continue
-        const day = result.clarifications.find(c => c.work_date === work_date)
-        const hours = d.hours ? Number(d.hours.replace(',', '.')) : day?.hours_net
-        if (hours) days.push({ work_date, hours })
-      }
-      if (!days.length) {
-        setError('Es gibt keine buchbaren Tage.')
-        return
-      }
-      const res = await api.postDownload('/api/exports/direct', { days }, 'CATS.xlsx')
-      setDone(`${res.rows} Zeilen mit ${res.hours.toFixed(2).replace('.', ',')} h ` +
-              `erzeugt. Es wurde nichts gespeichert.`)
-      setResult(null)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Export fehlgeschlagen')
-    } finally {
-      setBusy(false)
-    }
+  function addRow() {
+    const letzter = rows.length ? rows[rows.length - 1].work_date : null
+    const naechster = letzter
+      ? new Date(new Date(letzter + 'T00:00:00').getTime() + 86400000)
+          .toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10)
+    setRows([...rows, {
+      work_date: naechster, weekday: '', time_from: null, time_to: null,
+      hours_gross: null, reason: '', problem: null, book: true,
+      hours: '', suggested: null, touched: true, added: true, remember: false,
+    }])
+  }
+
+  /** Alle Zeilen, die vom automatischen Vorschlag abweichen oder bestätigt wurden. */
+  function buildAdjustments() {
+    return rows
+      .filter(r => r.touched || r.added
+                || r.problem === 'unknown_reason' || r.problem === 'incomplete')
+      .map(r => ({
+        work_date: r.work_date,
+        action: r.book ? 'book' : 'exclude',
+        hours: r.book ? parseHours(r.hours) : null,
+        remember_reason: r.remember && r.reason ? r.reason : null,
+      }))
   }
 
   async function commit(confirmOverwrite = false) {
     if (!result) return
     setError(''); setBusy(true)
     try {
-      const payload = {
-        clarifications: Object.entries(decisions).map(([work_date, d]) => ({
-          work_date,
-          action: d.action,
-          hours: d.action === 'book' && d.hours ? Number(d.hours.replace(',', '.')) : null,
-          remember_reason: d.remember
-            ? result.clarifications.find(c => c.work_date === work_date)?.reason || null
-            : null,
-        })),
-        confirm_overwrite_exported: confirmOverwrite,
-      }
       const res = await api.post<{ imported_days: number; recalculation: { rows: number } }>(
-        `/api/imports/${result.upload_id}/commit`, payload)
+        `/api/imports/${result.upload_id}/commit`,
+        { adjustments: buildAdjustments(), confirm_overwrite_exported: confirmOverwrite })
       setDone(`${res.imported_days} Tage übernommen, ${res.recalculation.rows} Zeilen erzeugt.`)
-      setResult(null)
+      setResult(null); setRows([])
       onImported()
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -112,16 +155,36 @@ export default function ImportPage({ onImported }: Props) {
     }
   }
 
-  function setDecision(date: string, patch: Partial<Decision>) {
-    setDecisions(prev => ({ ...prev, [date]: { ...prev[date], ...patch } }))
+  /** Verteilen und herunterladen, ohne etwas zu speichern. */
+  async function exportDirect() {
+    setError(''); setBusy(true)
+    try {
+      const days = rows
+        .filter(r => r.book && parseHours(r.hours) !== null)
+        .map(r => ({ work_date: r.work_date, hours: parseHours(r.hours)! }))
+      if (!days.length) { setError('Es gibt keine buchbaren Tage.'); return }
+      const res = await api.postDownload('/api/exports/direct', { days }, 'CATS.xlsx')
+      setDone(`${res.rows} Zeilen mit ${fmtHours(res.hours)} h erzeugt. ` +
+              `Es wurde nichts gespeichert.`)
+      setResult(null); setRows([])
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Export fehlgeschlagen')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function statusOf(d: ParsedDay) {
-    if (d.bookable) return { text: 'wird gebucht', cls: 'text-brand-dark' }
-    if (d.incomplete) return { text: 'Buchung unvollständig', cls: 'text-brand-red font-bold' }
-    if (d.unknown_reason) return { text: 'Grund unbekannt', cls: 'text-brand-red font-bold' }
-    return { text: d.reason || 'ohne Buchung', cls: 'text-cats-muted' }
+  function problemText(r: Row): string {
+    if (r.added) return 'von Hand ergänzt'
+    switch (r.problem) {
+      case 'unknown_reason': return `unbekannter Grund: ${r.reason}`
+      case 'incomplete':     return 'Kommen oder Gehen fehlt'
+      case 'excluded':       return r.reason || 'ohne Buchung'
+      default:               return r.reason || ''
+    }
   }
+
+  const blockiert = busy || zuKlein.length > 0 || ohneStunden.length > 0 || offen.length > 0
 
   return (
     <div className="space-y-4 max-w-5xl">
@@ -150,17 +213,17 @@ export default function ImportPage({ onImported }: Props) {
             </div>
             <div className="panel-body flex flex-wrap gap-6">
               <div>
-                <div className="label">Buchbare Tage</div>
-                <div className="num text-lg">{result.bookable_count}</div>
+                <div className="label">Tage, die gebucht werden</div>
+                <div className="num text-lg">{rows.filter(r => r.book).length}</div>
               </div>
               <div>
-                <div className="label">Summe Prod.</div>
-                <div className="num text-lg">{fmtHours(result.bookable_hours)} h</div>
+                <div className="label">Summe</div>
+                <div className="num text-lg">{fmtHours(Math.round(summe * 100) / 100)} h</div>
               </div>
               <div>
-                <div className="label">Klärfälle</div>
-                <div className={`num text-lg ${result.clarifications.length ? 'text-brand-red' : ''}`}>
-                  {result.clarifications.length}
+                <div className="label">noch zu entscheiden</div>
+                <div className={`num text-lg ${offen.length ? 'text-brand-red' : ''}`}>
+                  {offen.length}
                 </div>
               </div>
             </div>
@@ -175,56 +238,97 @@ export default function ImportPage({ onImported }: Props) {
             </div>
           )}
 
-          {result.clarifications.length > 0 && (
-            <div className="panel border-brand-red">
-              <div className="panel-head bg-brand-red text-white">
-                Klärfälle — bitte entscheiden
-              </div>
-              <div className="panel-body">
+          <div className="panel">
+            <div className="panel-head">
+              Tage prüfen und anpassen
+            </div>
+            <div className="panel-body space-y-3">
+              <p className="text-cats-muted">
+                Jede Zeile ist bearbeitbar: Stunden ändern, Tage ab- oder zuwählen,
+                fehlende Tage ergänzen. Zeilen mit rotem Hinweis brauchen eine
+                Entscheidung, bevor der Import möglich ist.
+              </p>
+
+              <div className="overflow-x-auto">
                 <table className="table-cats">
                   <thead>
                     <tr>
-                      <th>Tag</th><th>Grund / Problem</th><th className="w-40">Behandlung</th>
-                      <th className="w-28">Stunden</th><th className="w-40">merken</th>
+                      <th className="w-16">buchen</th>
+                      <th className="w-40">Tag</th>
+                      <th className="w-20">von</th>
+                      <th className="w-20">bis</th>
+                      <th className="w-20 text-right">Std.</th>
+                      <th className="w-28 text-right">Stunden</th>
+                      <th>Hinweis</th>
+                      <th className="w-32">merken</th>
+                      <th className="w-10"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.clarifications.map(c => {
-                      const key = c.work_date!
-                      const d = decisions[key] ?? { action: 'book', hours: '', remember: false }
+                    {rows.map((r, i) => {
+                      const h = parseHours(r.hours)
+                      const fehlt = r.book && h === null
+                      const klein = r.book && h !== null && h < MIN_BOOKABLE
+                      const zuKlaeren =
+                        (r.problem === 'unknown_reason' || r.problem === 'incomplete')
+                        && !r.touched
                       return (
-                        <tr key={key}>
-                          <td className="font-mono whitespace-nowrap">
-                            {fmtDate(key)} {c.weekday}
+                        <tr key={`${r.work_date}-${i}`}
+                            className={r.book ? '' : 'opacity-60'}>
+                          <td className="text-center">
+                            <input type="checkbox" checked={r.book}
+                                   onChange={e => patch(i, { book: e.target.checked })} />
                           </td>
                           <td>
-                            {c.unknown_reason
-                              ? <>unbekannter Grundtext <span className="font-mono">{c.reason}</span></>
-                              : <>Kommen oder Gehen fehlt
-                                  {c.time_from && <> (von {c.time_from})</>}
-                                  {c.hours_target ? <> · Sollzeit {fmtHours(c.hours_target)} h</> : null}
-                                </>}
+                            {r.added ? (
+                              <input type="date" className="field w-full" value={r.work_date}
+                                     onChange={e => patch(i, { work_date: e.target.value })} />
+                            ) : (
+                              <span className="font-mono whitespace-nowrap">
+                                {fmtDate(r.work_date)} {r.weekday || weekdayOf(r.work_date)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="font-mono text-cats-muted">{r.time_from ?? ''}</td>
+                          <td className="font-mono text-cats-muted">{r.time_to ?? ''}</td>
+                          <td className="num text-cats-muted">{fmtHours(r.hours_gross)}</td>
+                          <td>
+                            <input className={`field w-full text-right
+                                    ${fehlt || klein ? 'border-brand-red' : ''}`}
+                                   value={r.hours} disabled={!r.book}
+                                   placeholder={r.suggested ? fmtHours(r.suggested) : ''}
+                                   onChange={e => patch(i, { hours: e.target.value })} />
+                          </td>
+                          <td className={
+                            zuKlaeren || fehlt || klein ? 'text-brand-red font-bold'
+                            : r.added || r.touched ? 'text-brand-dark'
+                            : 'text-cats-muted'}>
+                            {klein ? `unter ${fmtHours(MIN_BOOKABLE)} h — CATS lehnt das ab`
+                              : fehlt ? 'Stundenzahl fehlt'
+                              : r.touched && !r.added ? 'angepasst'
+                              : problemText(r)}
+                            {zuKlaeren && (
+                              <button className="btn ml-2 py-0" title="Vorschlag übernehmen"
+                                      onClick={() => patch(i, {})}>
+                                so lassen
+                              </button>
+                            )}
                           </td>
                           <td>
-                            <select className="field w-full" value={d.action}
-                                    onChange={e => setDecision(key, { action: e.target.value as 'book' | 'exclude' })}>
-                              <option value="book">buchen</option>
-                              <option value="exclude">nicht buchen</option>
-                            </select>
-                          </td>
-                          <td>
-                            <input className="field w-full text-right" value={d.hours}
-                                   disabled={d.action === 'exclude'}
-                                   placeholder={c.hours_target ? fmtHours(c.hours_target) : ''}
-                                   onChange={e => setDecision(key, { hours: e.target.value })} />
-                          </td>
-                          <td>
-                            {c.reason && (
+                            {r.reason && r.problem === 'unknown_reason' && (
                               <label className="flex items-center gap-2">
-                                <input type="checkbox" checked={d.remember}
-                                       onChange={e => setDecision(key, { remember: e.target.checked })} />
-                                <span className="text-cats-muted">künftig automatisch</span>
+                                <input type="checkbox" checked={r.remember}
+                                       onChange={e => patch(i, { remember: e.target.checked })} />
+                                <span className="text-cats-muted">künftig so</span>
                               </label>
+                            )}
+                          </td>
+                          <td>
+                            {r.added && (
+                              <button className="btn w-full" title="Zeile entfernen"
+                                      onClick={() => setRows(rows.filter((_, j) => j !== i))}>
+                                ×
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -233,45 +337,35 @@ export default function ImportPage({ onImported }: Props) {
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
 
-          <div className="panel">
-            <div className="panel-head">Alle Tage</div>
-            <div className="panel-body overflow-x-auto">
-              <table className="table-cats">
-                <thead>
-                  <tr>
-                    <th>Tag</th><th>von</th><th>bis</th>
-                    <th className="text-right">Std.</th>
-                    <th className="text-right">Prod.</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.days.map(d => {
-                    const s = statusOf(d)
-                    return (
-                      <tr key={d.day}>
-                        <td className="font-mono whitespace-nowrap">
-                          {String(d.day).padStart(2, '0')} {d.weekday}
-                        </td>
-                        <td className="font-mono">{d.time_from ?? ''}</td>
-                        <td className="font-mono">{d.time_to ?? ''}</td>
-                        <td className="num text-cats-muted">{fmtHours(d.hours_gross)}</td>
-                        <td className="num font-bold">{d.bookable ? fmtHours(d.hours_net) : ''}</td>
-                        <td className={s.cls}>{s.text}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+              <button className="btn" onClick={addRow}>Tag ergänzen</button>
+
+              {offen.length > 0 && (
+                <p className="text-brand-red">
+                  {offen.length} {offen.length === 1 ? 'Tag braucht' : 'Tage brauchen'} eine
+                  Entscheidung: buchen und Stunden eintragen, oder mit
+                  <em> so lassen</em> beim Vorschlag bleiben.
+                </p>
+              )}
+              {zuKlein.length > 0 && (
+                <p className="text-brand-red">
+                  {zuKlein.length} {zuKlein.length === 1 ? 'Zeile liegt' : 'Zeilen liegen'} unter
+                  der Mindestbuchung von {fmtHours(MIN_BOOKABLE)} h. CATS nimmt solche
+                  Zeiten nicht an.
+                </p>
+              )}
+              {ohneStunden.length > 0 && (
+                <p className="text-brand-red">
+                  {ohneStunden.length} gebuchten Tagen fehlt die Stundenzahl.
+                </p>
+              )}
             </div>
           </div>
 
           {result.storage_mode === 'ephemeral' ? (
             <div className="space-y-2">
-              <button className="btn-primary" disabled={busy} onClick={() => void exportDirect()}>
+              <button className="btn-primary" disabled={blockiert}
+                      onClick={() => void exportDirect()}>
                 Verteilen und als XLSX herunterladen
               </button>
               <p className="text-cats-muted">
@@ -281,7 +375,7 @@ export default function ImportPage({ onImported }: Props) {
               </p>
             </div>
           ) : (
-            <button className="btn-primary" disabled={busy} onClick={() => void commit()}>
+            <button className="btn-primary" disabled={blockiert} onClick={() => void commit()}>
               Import übernehmen
             </button>
           )}

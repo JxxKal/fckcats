@@ -30,7 +30,12 @@ from datetime import date
 
 LADDER = [4.0, 2.0, 1.0]
 MAX_SLICES_PER_DAY = 4
+# Angestrebte Untergrenze: moeglichst keine Zeile unter einer Stunde.
 MIN_SLICE_HOURS = 1.0
+# Harte Untergrenze. CATS nimmt kleinere Buchungen nicht an, deshalb darf
+# keine Zeile darunter liegen -- auch nicht der krumme Tagesrest. Die
+# Zuordnung wird dadurch etwas groeber, dafuer ist die Datei einspielbar.
+MIN_BOOKABLE_HOURS = 0.5
 # Bezugsgroesse fuer die anteilige Kuerzung der Projekt- und Verwaltungsstunden.
 FULL_WEEK_DAYS = 5
 
@@ -140,6 +145,10 @@ def compute_targets(
         round(plan.unbooked_hours_per_week * share, 4),
         hours_total,
     ) if plan.unbooked_hours_per_week > 0 else 0.0
+    # Ein Bruchteil unter der Mindestbuchung laesst sich nicht sauber
+    # aussparen; dann wird die Zeit eben gebucht.
+    if unbooked < MIN_BOOKABLE_HOURS:
+        unbooked = 0.0
     distributable = round(hours_total - unbooked, 4)
     meta["unbooked_hours"] = round(unbooked, 2)
 
@@ -165,7 +174,9 @@ def compute_targets(
         wanted = {k: v * factor for k, v in wanted.items()}
         meta["projects_capped"] = True
 
-    targets = {k: round(v, 4) for k, v in wanted.items() if v > 0.005}
+    # Projektanteile unter der Mindestbuchung entfallen; ihre Stunden gehen an
+    # die gewichtete Verteilung, statt eine nicht buchbare Zeile zu erzeugen.
+    targets = {k: round(v, 4) for k, v in wanted.items() if v >= MIN_BOOKABLE_HOURS}
     project_hours = sum(targets.values())
     rest = round(distributable - project_hours, 4)
     meta["project_hours"] = round(project_hours, 2)
@@ -225,11 +236,15 @@ def plan_week(
                 )
                 if block is None:
                     block = rest
-                # Keinen Kruemel hinterlassen: was uebrig bleibt, muss 0 sein,
-                # mindestens MIN_SLICE_HOURS betragen oder genau der krumme
-                # Tagesanteil sein.
                 remainder = round(rest - block, 2)
-                if 0.005 < remainder < MIN_SLICE_HOURS and abs(remainder - frac) > 0.005:
+                # Harte Grenze: nichts unter der Mindestbuchung stehen lassen.
+                # Betrifft vor allem den krummen Tagesanteil -- 8,05 h ergaeben
+                # sonst eine Zeile mit 0,05 h, die CATS ablehnt.
+                if 0.005 < remainder < MIN_BOOKABLE_HOURS:
+                    block = rest
+                # Darueber hinaus moeglichst keine Reste unter einer Stunde,
+                # ausser es ist der krumme Tagesanteil selbst.
+                elif 0.005 < remainder < MIN_SLICE_HOURS and abs(remainder - frac) > 0.005:
                     block = rest
 
             block = round(block, 2)

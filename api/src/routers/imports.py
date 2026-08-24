@@ -17,6 +17,7 @@ from config import Config
 from database import get_pool
 from deps import app_config, get_current_user
 from keys import get_dek
+from distribution import MIN_BOOKABLE_HOURS
 from pdf_parser import parse_text, pdf_to_text
 from recalc import exported_dates, recalculate
 from routers.cats import load_config, plan_from_config
@@ -28,7 +29,12 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 class Clarification(BaseModel):
-    """Entscheidung des Users zu einem Klaerfall."""
+    """Anpassung des Users zu einem Tag.
+
+    Gilt fuer jeden Tag, nicht nur fuer Klaerfaelle: die Vorschau ist
+    vollstaendig editierbar. Ohne Eintrag greift die automatische Einordnung
+    aus dem PDF.
+    """
     work_date: date
     action: str = Field(pattern="^(book|exclude)$")
     hours: float | None = Field(default=None, gt=0, le=24)
@@ -37,9 +43,19 @@ class Clarification(BaseModel):
 
 
 class CommitRequest(BaseModel):
+    # 'adjustments' ist der treffendere Name; 'clarifications' bleibt gueltig.
+    adjustments: list[Clarification] = Field(default_factory=list)
     clarifications: list[Clarification] = Field(default_factory=list)
     # Muss True sein, wenn der Import Tage beruehrt, die bereits exportiert wurden.
     confirm_overwrite_exported: bool = False
+
+    @property
+    def all_adjustments(self) -> list[Clarification]:
+        """Beide Felder zusammen; spaetere Eintraege gewinnen."""
+        merged: dict[date, Clarification] = {}
+        for entry in [*self.clarifications, *self.adjustments]:
+            merged[entry.work_date] = entry
+        return list(merged.values())
 
 
 def _user_dir(cfg: Config, user_id: int, kind: str) -> str:
@@ -233,33 +249,68 @@ async def commit_upload(
         raise HTTPException(404, "Upload nicht gefunden.")
 
     days = upload.get("days", [])
-    decisions = {c.work_date.isoformat(): c for c in body.clarifications}
+    adjustments = body.all_adjustments
+    decisions = {c.work_date.isoformat(): c for c in adjustments}
 
-    # Zu schreibende Tage einsammeln: automatisch buchbare plus geklaerte.
+    for entry in adjustments:
+        if entry.action == "book" and entry.hours is not None \
+                and entry.hours < MIN_BOOKABLE_HOURS:
+            raise HTTPException(
+                400,
+                f"{entry.work_date.isoformat()}: {entry.hours:g} h liegen unter der "
+                f"Mindestbuchung von {MIN_BOOKABLE_HOURS:g} h. CATS nimmt kleinere "
+                f"Zeiten nicht an.",
+            )
+
+    # Zu schreibende Tage einsammeln. Eine Anpassung des Users hat immer
+    # Vorrang vor der automatischen Einordnung aus dem PDF.
     to_write: list[tuple[date, float, str, str]] = []   # (datum, stunden, quelle, grund)
+    # Tage, die dieses PDF abdeckt, die aber nicht gebucht werden. Sie muessen
+    # verschwinden, falls aus einem frueheren Import noch etwas dasteht -- sonst
+    # bliebe ein abgewaehlter Tag oder ein nachtraeglich als Urlaub gemeldeter
+    # Tag gebucht.
+    to_remove: list[date] = []
     unresolved: list[str] = []
+    seen_dates: set[str] = set()
 
     for d in days:
         iso = d.get("work_date")
         if not iso:
             continue
+        seen_dates.add(iso)
+        decision = decisions.get(iso)
+
+        if decision:
+            if decision.action == "exclude":
+                to_remove.append(date.fromisoformat(iso))
+                continue
+            hours = decision.hours if decision.hours is not None else d.get("hours_net")
+            if not hours:
+                raise HTTPException(400, f"Fuer den {iso} fehlt die Stundenangabe.")
+            # Ein von Hand gesetzter Wert wird als solcher gekennzeichnet.
+            source = "pdf" if decision.hours is None else "manual"
+            to_write.append((date.fromisoformat(iso), float(hours), source, d["reason"] or ""))
+            continue
+
         if d["bookable"]:
             to_write.append((date.fromisoformat(iso), d["hours_net"], "pdf", d["reason"] or ""))
             continue
         if d["unknown_reason"] or d["incomplete"]:
-            decision = decisions.get(iso)
-            if not decision:
-                unresolved.append(iso)
-                continue
-            if decision.action == "exclude":
-                continue
-            hours = decision.hours if decision.hours is not None else d.get("hours_net")
-            if not hours:
-                raise HTTPException(
-                    400, f"Fuer den {iso} fehlt die Stundenangabe."
-                )
-            source = "pdf" if decision.hours is None else "manual"
-            to_write.append((date.fromisoformat(iso), float(hours), source, d["reason"] or ""))
+            unresolved.append(iso)
+            continue
+        # Automatisch ausgeschlossen, etwa Urlaub oder ein freier Tag.
+        to_remove.append(date.fromisoformat(iso))
+
+    # Tage, die im PDF gar nicht vorkommen, aber von Hand ergaenzt wurden.
+    for entry in adjustments:
+        iso = entry.work_date.isoformat()
+        if iso in seen_dates or entry.action != "book":
+            continue
+        if not entry.hours:
+            raise HTTPException(
+                400, f"Fuer den ergaenzten Tag {iso} fehlt die Stundenangabe."
+            )
+        to_write.append((entry.work_date, float(entry.hours), "manual", ""))
 
     if unresolved:
         raise HTTPException(
@@ -270,9 +321,10 @@ async def commit_upload(
             },
         )
 
-    # Beruehrt der Import bereits exportierte Tage?
+    # Beruehrt der Import bereits exportierte Tage? Auch das Entfernen zaehlt.
     locked = await exported_dates(pool, user_id)
-    conflicts = sorted(d.isoformat() for d, *_ in to_write if d in locked)
+    beruehrt = {d for d, *_ in to_write} | set(to_remove)
+    conflicts = sorted(d.isoformat() for d in beruehrt if d in locked)
     if conflicts and not body.confirm_overwrite_exported:
         raise HTTPException(
             409,
@@ -285,13 +337,25 @@ async def commit_upload(
 
     # Dauerhafte Regeln fuer Grundtexte merken.
     new_rules = dict(cfg_row.get("reason_rules", {}))
-    for c in body.clarifications:
+    for c in adjustments:
         if c.remember_reason:
             new_rules[c.remember_reason] = c.action
 
     async with pool.acquire() as conn:
         async with conn.transaction():
             await store.upsert_workdays(conn, user_id, dek, to_write, upload_id)
+            if to_remove:
+                # Erst archivieren, dann loeschen -- die alte Fassung bleibt
+                # in der Historie einsehbar.
+                await store.archive_entries(conn, user_id, dek, to_remove)
+                await conn.execute(
+                    "DELETE FROM cats_entry WHERE user_id = $1 AND work_date = ANY($2::date[])",
+                    user_id, to_remove,
+                )
+                await conn.execute(
+                    "DELETE FROM workday WHERE user_id = $1 AND work_date = ANY($2::date[])",
+                    user_id, to_remove,
+                )
             await conn.execute(
                 "UPDATE uploads SET committed_at = now() WHERE id = $1", upload_id
             )
@@ -309,6 +373,7 @@ async def commit_upload(
     )
     return {
         "imported_days": len(to_write),
+        "removed_days": [d.isoformat() for d in sorted(to_remove)],
         "overwritten_exported_days": conflicts,
         "recalculation": result,
     }

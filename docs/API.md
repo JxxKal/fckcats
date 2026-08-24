@@ -103,17 +103,31 @@ lässt ihn durch.
 
 ```json
 {
-  "clarifications": [
+  "adjustments": [
+    {"work_date": "2026-03-02", "action": "book", "hours": 6.5},
     {"work_date": "2026-03-05", "action": "book", "hours": null,
      "remember_reason": "Dienstreise"},
-    {"work_date": "2026-03-06", "action": "book", "hours": 7.5}
+    {"work_date": "2026-03-06", "action": "exclude"},
+    {"work_date": "2026-03-07", "action": "book", "hours": 4.0}
   ],
   "confirm_overwrite_exported": false
 }
 ```
 
-`hours: null` übernimmt den Wert aus dem PDF; ein eigener Wert wird als `manual`
-gekennzeichnet. `remember_reason` merkt die Entscheidung dauerhaft in der Config.
+`adjustments` gelten für **jeden** Tag, nicht nur für Klärfälle — die Vorschau ist
+vollständig bearbeitbar. Ohne Eintrag greift die automatische Einordnung aus dem PDF.
+Das ältere Feld `clarifications` wird weiterhin akzeptiert und mit `adjustments`
+zusammengeführt.
+
+- `hours: null` übernimmt den Wert aus dem PDF; ein eigener Wert wird als `manual`
+  gekennzeichnet und muss mindestens **0,5 h** betragen, sonst **400**.
+- `action: "exclude"` entfernt den Tag auch dann, wenn er aus einem früheren Import
+  noch gespeichert ist.
+- Ein Datum, das im PDF gar nicht vorkommt, wird als zusätzlicher Tag angelegt.
+- `remember_reason` merkt die Entscheidung dauerhaft in der Config.
+
+Die Antwort nennt neben `imported_days` auch `removed_days` — die Tage, die dieses
+PDF abdeckt, die aber nicht gebucht werden.
 
 ## Zieltabelle
 

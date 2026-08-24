@@ -302,3 +302,71 @@ def test_bericht_weist_gebuchte_und_ungebuchte_stunden_aus():
     r = reports[0]
     assert abs(r.bookable_hours - (r.hours - r.unbooked_hours)) < 0.01
     assert abs(r.ops_hours - r.bookable_hours) < 0.02
+
+
+# ── Mindestbuchung von 0,5 h ─────────────────────────────────────────────────
+
+KRUMME_WOCHE = [
+    (date(2026, 8, 10), 8.88), (date(2026, 8, 11), 6.00), (date(2026, 8, 12), 7.89),
+    (date(2026, 8, 13), 8.02), (date(2026, 8, 14), 7.34),
+]
+
+
+def test_keine_zeile_unter_der_mindestbuchung():
+    from distribution import MIN_BOOKABLE_HOURS
+    allocations, _, _ = plan_range_best_of(KRUMME_WOCHE, Plan(ops=OPS), seed=42, candidates=20)
+    kleinste = min(a.hours for a in allocations)
+    assert kleinste >= MIN_BOOKABLE_HOURS - 0.001, f"Zeile mit {kleinste} h"
+
+
+def test_krummer_tagesrest_wird_verschmolzen():
+    # 8,05 h ergaben vorher eine Zeile mit 0,05 h.
+    from distribution import MIN_BOOKABLE_HOURS
+    tag = [(date(2026, 8, 17), 8.05)]
+    allocations, _, _ = plan_range_best_of(tag, Plan(ops=OPS), seed=1, candidates=20)
+    assert all(a.hours >= MIN_BOOKABLE_HOURS - 0.001 for a in allocations)
+    assert abs(sum(a.hours for a in allocations) - 8.05) < 0.005
+
+
+def test_mindestbuchung_ueber_viele_konfigurationen():
+    """Der Rundumschlag: krumme Stunden, verschiedene Plaene, viele Seeds."""
+    from distribution import MIN_BOOKABLE_HOURS
+    days, d = [], date(2026, 1, 5)
+    while d < date(2026, 3, 1):
+        if d.weekday() < 5:
+            days.append((d, round(6.0 + (d.toordinal() % 271) / 100, 2)))
+        d += timedelta(days=1)
+
+    plaene = [
+        Plan(ops=[("A", 1.0)]),
+        Plan(ops=OPS),
+        Plan(ops=[("A", 0.6), ("B", 0.4)], projects=[("P", 9.0)]),
+        Plan(ops=[("A", 0.5), ("B", 0.5)], projects=[("P", 7.5)], unbooked_hours_per_week=3.0),
+        Plan(projects=[("P1", 20.0), ("P2", 20.0)]),
+    ]
+    geprueft = 0
+    for seed in range(1, 6):
+        for plan in plaene:
+            allocations, _, _ = plan_range_best_of(days, plan, seed=seed, candidates=2)
+            for a in allocations:
+                assert a.hours >= MIN_BOOKABLE_HOURS - 0.001, \
+                    f"{a.work_date} {a.wbs_element}: {a.hours} h"
+            geprueft += len(allocations)
+    assert geprueft > 1000
+
+
+def test_projektanteil_unter_der_mindestbuchung_entfaellt():
+    from distribution import MIN_BOOKABLE_HOURS
+    # 1 h je Woche, davon ein Fuenftel -> 0,2 h, also unbuchbar
+    plan = Plan(ops=OPS2, projects=[("WINZIG", 1.0)])
+    targets, _ = compute_targets(7.55, 1, plan)
+    assert "WINZIG" not in targets
+    # Die Stunden gehen an die gewichtete Verteilung, nichts verschwindet
+    assert abs(sum(targets.values()) - 7.55) < 0.01
+
+
+def test_zu_kleine_ungebuchte_zeit_wird_gebucht():
+    plan = Plan(ops=OPS2, unbooked_hours_per_week=1.0)
+    # Ein Fuenftel von 1 h ist 0,2 h und damit nicht aussparbar
+    _, meta = compute_targets(7.55, 1, plan)
+    assert meta["unbooked_hours"] == 0.0

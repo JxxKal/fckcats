@@ -102,6 +102,21 @@ Tag als **Klärfall** markiert. Der User entscheidet einmalig „buchen" oder
 „ausschließen"; die Entscheidung wird pro User gespeichert und künftig automatisch
 angewendet (einsehbar und änderbar in der Config).
 
+### Alles ist von Hand anpassbar
+
+Die Vorschau ist keine reine Anzeige: Jede Zeile lässt sich bearbeiten — Stunden
+ändern, Tage ab- oder zuwählen, im PDF fehlende Tage ergänzen. Eine Anpassung hat
+immer Vorrang vor der automatischen Einordnung.
+
+- Ein abgewählter Tag wird beim Übernehmen **entfernt**, falls aus einem früheren
+  Import noch etwas dasteht. Dasselbe gilt für Tage, die das PDF inzwischen als
+  Urlaub oder frei ausweist.
+- Von Hand gesetzte Stunden werden als `manual` gekennzeichnet.
+- Werte unter der Mindestbuchung von 0,5 h werden abgelehnt.
+- Klärfälle bleiben offen, bis sie angefasst wurden — auch wenn die Voreinstellung
+  „nicht buchen" lautet. Sonst fiele ein Tag mit vergessener Buchung stillschweigend
+  unter den Tisch.
+
 ### Fehlende Buchungen → Klärfall
 
 Ein Werktag ist ein Klärfall, wenn **kein** Grund eingetragen ist **und** eines gilt:
@@ -172,6 +187,13 @@ Dazu:
 
 **Slice-Präferenz:** möglichst grobe Blöcke — Leiter `4 h → 2 h → 1 h`, der krumme
 Rest des Tages landet in einem Slice (`4,00 + 2,00 + 0,82`).
+
+**Mindestbuchung 0,5 h.** CATS nimmt kleinere Zeiten nicht an, also darf keine Zeile
+darunter liegen — auch nicht der krumme Tagesrest. Aus 8,05 h wird deshalb
+`4,00 + 2,00 + 1,05 + 1,00` statt einer Zeile mit 0,05 h. Ebenso entfallen
+Projektanteile und ungebuchte Zeit, die anteilig unter 0,5 h fielen; ihre Stunden
+gehen dann in die gewichtete Verteilung. Die Zuordnung wird dadurch etwas gröber,
+dafür ist die Datei einspielbar.
 
 ### Wochenziele: erst abziehen, dann verteilen
 
