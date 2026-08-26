@@ -70,6 +70,12 @@ zurück. Ein korrigiertes PDF für einen bereits gebuchten Zeitraum verlangt ein
 ausdrückliche Bestätigung, und die ersetzte Fassung bleibt in der Historie
 einsehbar.
 
+**Direkt in SAP.** Die erzeugte XLSX geht ohne Umweg in den CATS-Mass-Upload. Sie
+muss nicht erst in Excel geöffnet und gespeichert werden — ein Schritt, der lange
+nötig war, weil die Textspalte `WBS_ELEMENT` in der Zelle statt in der
+Shared-String-Tabelle stand und SAP sie deshalb leer las. Dateien aus der Historie,
+die vor dieser Fassung erzeugt wurden, brauchen den Umweg weiterhin.
+
 ![Zieltabelle mit Soll/Ist je Woche](docs/screenshots/03-zieltabelle.png)
 
 ![CATS-Config mit Projekten und gewichteten Elementen](docs/screenshots/05-cats-config.png)
@@ -187,7 +193,8 @@ WBS-Arbeitsvorrat eintragen.
    Klärfälle abarbeiten, übernehmen.
 3. **Zieltabelle** — der offene Bestand, nach Woche gruppiert, mit Soll/Ist-Vergleich
    je WBS-Element. Zeitraum wählen, als XLSX exportieren; danach ist der exportierte
-   Teil erledigt und aus der Ansicht verschwunden.
+   Teil erledigt und aus der Ansicht verschwunden. Die Datei geht so, wie sie ist,
+   in den CATS-Mass-Upload.
 4. **Historie** — erzeugte Dateien erneut herunterladen, einen Export zurücknehmen
    (falls er nicht in SAP angekommen ist) oder die Historie aufräumen. Aufräumen
    ändert den Buchungsstatus nicht: was einmal gebucht wurde, geht nicht versehentlich

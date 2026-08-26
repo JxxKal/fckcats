@@ -345,8 +345,10 @@ git pull
 docker compose up -d --build
 ```
 
-Hinter einem Proxy zieht `--build` die Angaben aus der `.env`; ein zusätzliches
-`--build-arg` ist nicht nötig.
+`--build` ist nicht optional: Abhängigkeiten der API und das gebaute Frontend
+stecken im Image, ein reiner Neustart bringt sie nicht mit. Hinter einem Proxy zieht
+`--build` die Angaben aus der `.env`; ein zusätzliches `--build-arg` ist nicht
+nötig.
 
 Schemaänderungen werden beim Start idempotent angewandt; ein manueller
 Migrationsschritt entfällt.
