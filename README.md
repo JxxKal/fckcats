@@ -49,7 +49,7 @@ Tage ab- oder zuwählen, fehlende Tage ergänzen. Was angepasst wurde, ist als s
 gekennzeichnet.
 
 **Verteilen.** Die Stunden werden je ISO-Woche auf die WBS-Elemente verteilt, in
-möglichst groben Blöcken (4 h vor 2 h vor 1 h), keine Zeile unter 0,6 h — darunter
+möglichst groben Blöcken (4 h vor 2 h vor 1 h), keine Zeile unter 0,5 h — darunter
 lehnt CATS die Buchung ab. Dabei gibt es zwei Gruppen:
 **Projekte** mit einer festen Obergrenze in Stunden je Woche werden zuerst bedient,
 **Operations** teilen sich nach Gewichtung, was übrig bleibt. Jede Woche sieht anders

@@ -120,7 +120,7 @@ Das ältere Feld `clarifications` wird weiterhin akzeptiert und mit `adjustments
 zusammengeführt.
 
 - `hours: null` übernimmt den Wert aus dem PDF; ein eigener Wert wird als `manual`
-  gekennzeichnet und muss mindestens **0,6 h** betragen, sonst **400**.
+  gekennzeichnet und muss mindestens **0,5 h** betragen, sonst **400**.
 - `action: "exclude"` entfernt den Tag auch dann, wenn er aus einem früheren Import
   noch gespeichert ist.
 - Ein Datum, das im PDF gar nicht vorkommt, wird als zusätzlicher Tag angelegt.

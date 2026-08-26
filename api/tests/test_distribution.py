@@ -304,7 +304,7 @@ def test_bericht_weist_gebuchte_und_ungebuchte_stunden_aus():
     assert abs(r.ops_hours - r.bookable_hours) < 0.02
 
 
-# ── Mindestbuchung von 0,6 h ─────────────────────────────────────────────────
+# ── Mindestbuchung von 0,5 h ─────────────────────────────────────────────────
 
 KRUMME_WOCHE = [
     (date(2026, 8, 10), 8.88), (date(2026, 8, 11), 6.00), (date(2026, 8, 12), 7.89),
@@ -326,25 +326,6 @@ def test_krummer_tagesrest_wird_verschmolzen():
     allocations, _, _ = plan_range_best_of(tag, Plan(ops=OPS), seed=1, candidates=20)
     assert all(a.hours >= MIN_BOOKABLE_HOURS - 0.001 for a in allocations)
     assert abs(sum(a.hours for a in allocations) - 8.05) < 0.005
-
-
-def test_krummer_tagesanteil_von_058_wird_verschmolzen():
-    """Tage mit 0,58 h Anteil ergaben Zeilen mit 0,58 h -- CATS lehnte sie ab.
-
-    Geprueft wird gegen die feste 0,6 und nicht gegen MIN_BOOKABLE_HOURS: die
-    Grenze kommt von CATS, nicht von der Konstante.
-    """
-    days, d = [], date(2026, 1, 5)
-    while d < date(2026, 2, 15):
-        if d.weekday() < 5:
-            days.append((d, 7.58 if d.weekday() % 2 else 8.58))
-        d += timedelta(days=1)
-    summe = round(sum(h for _, h in days), 2)
-    for seed in range(1, 6):
-        allocations, _, _ = plan_range_best_of(days, Plan(ops=OPS), seed=seed, candidates=20)
-        kleinste = min(a.hours for a in allocations)
-        assert kleinste >= 0.6 - 0.001, f"Zeile mit {kleinste} h"
-        assert abs(sum(a.hours for a in allocations) - summe) < 0.005
 
 
 def test_mindestbuchung_ueber_viele_konfigurationen():

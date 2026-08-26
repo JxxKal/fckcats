@@ -112,7 +112,7 @@ immer Vorrang vor der automatischen Einordnung.
   Import noch etwas dasteht. Dasselbe gilt für Tage, die das PDF inzwischen als
   Urlaub oder frei ausweist.
 - Von Hand gesetzte Stunden werden als `manual` gekennzeichnet.
-- Werte unter der Mindestbuchung von 0,6 h werden abgelehnt.
+- Werte unter der Mindestbuchung von 0,5 h werden abgelehnt.
 - Klärfälle bleiben offen, bis sie angefasst wurden — auch wenn die Voreinstellung
   „nicht buchen" lautet. Sonst fiele ein Tag mit vergessener Buchung stillschweigend
   unter den Tisch.
@@ -188,11 +188,10 @@ Dazu:
 **Slice-Präferenz:** möglichst grobe Blöcke — Leiter `4 h → 2 h → 1 h`, der krumme
 Rest des Tages landet in einem Slice (`4,00 + 2,00 + 0,82`).
 
-**Mindestbuchung 0,6 h je WBS-Element und Tag.** CATS nimmt kleinere Zeiten nicht an
-(0,58 h wurde abgelehnt), also darf keine Zeile darunter liegen — auch nicht der
-krumme Tagesrest. Aus 8,05 h wird deshalb
+**Mindestbuchung 0,5 h.** CATS nimmt kleinere Zeiten nicht an, also darf keine Zeile
+darunter liegen — auch nicht der krumme Tagesrest. Aus 8,05 h wird deshalb
 `4,00 + 2,00 + 1,05 + 1,00` statt einer Zeile mit 0,05 h. Ebenso entfallen
-Projektanteile und ungebuchte Zeit, die anteilig unter 0,6 h fielen; ihre Stunden
+Projektanteile und ungebuchte Zeit, die anteilig unter 0,5 h fielen; ihre Stunden
 gehen dann in die gewichtete Verteilung. Die Zuordnung wird dadurch etwas gröber,
 dafür ist die Datei einspielbar.
 
@@ -449,6 +448,24 @@ Exakt nach dem CATS-Mass-Upload-Muster:
 
 Eine Tageszeile der validierten Liste wird zu 1–4 XLSX-Zeilen, je nach Anzahl der
 zugeteilten WBS-Elemente.
+
+### Was SAP an der Datei prüft
+
+Die Datei wird von Hand geschrieben (`api/src/xlsx_export.py`), nicht über eine
+Bibliothek. Zwei Eigenschaften entscheiden darüber, ob SAP sie überhaupt annimmt:
+
+- **Texte gehören in die Shared-String-Tabelle** (`xl/sharedStrings.xml`), die Zelle
+  verweist nur darauf (`<c t="s"><v>7</v></c>`). openpyxl schrieb sie stattdessen als
+  *inline strings* in die Zelle selbst. Für Excel ist beides gültig, SAP liest nur die
+  Tabelle — das WBS-Element, die einzige Textspalte der Datenzeilen, kam leer an und
+  der Upload scheiterte. Wer die Datei vorher einmal in Excel öffnete und speicherte,
+  bekam die Tabelle geschenkt; genau das verdeckte die Ursache und ließ die Schuld
+  bei den Stundenwerten suchen.
+- **`[Content_Types].xml` muss der erste Eintrag im ZIP sein.** OPC verlangt es;
+  openpyxl hängte ihn ans Ende.
+
+Beides ist mit einem Test abgesichert. Die erzeugten Bytes sind reproduzierbar:
+derselbe Export ergibt dieselbe Datei.
 
 ---
 
