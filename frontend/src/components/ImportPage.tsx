@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import { api, ApiError, fmtDate, fmtHours, weekdayOf } from '../api'
 import type { UploadResult } from '../types'
 
-/** CATS nimmt keine Buchungen unter einer halben Stunde an. */
-const MIN_BOOKABLE = 0.5
+/** CATS nimmt keine Buchungen unter 0,6 h an. */
+const MIN_BOOKABLE = 0.6
 
 /** Zustand einer Zeile in der bearbeitbaren Tagesliste. */
 interface Row {

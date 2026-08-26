@@ -13,7 +13,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-MODULES = ["test_pdf_parser", "test_distribution", "test_xlsx_export", "test_crypto"]
+MODULES = ["test_pdf_parser", "test_distribution", "test_weekview",
+           "test_xlsx_export", "test_crypto"]
 
 
 def main() -> int:

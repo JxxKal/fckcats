@@ -112,7 +112,7 @@ immer Vorrang vor der automatischen Einordnung.
   Import noch etwas dasteht. Dasselbe gilt für Tage, die das PDF inzwischen als
   Urlaub oder frei ausweist.
 - Von Hand gesetzte Stunden werden als `manual` gekennzeichnet.
-- Werte unter der Mindestbuchung von 0,5 h werden abgelehnt.
+- Werte unter der Mindestbuchung von 0,6 h werden abgelehnt.
 - Klärfälle bleiben offen, bis sie angefasst wurden — auch wenn die Voreinstellung
   „nicht buchen" lautet. Sonst fiele ein Tag mit vergessener Buchung stillschweigend
   unter den Tisch.
@@ -188,10 +188,11 @@ Dazu:
 **Slice-Präferenz:** möglichst grobe Blöcke — Leiter `4 h → 2 h → 1 h`, der krumme
 Rest des Tages landet in einem Slice (`4,00 + 2,00 + 0,82`).
 
-**Mindestbuchung 0,5 h.** CATS nimmt kleinere Zeiten nicht an, also darf keine Zeile
-darunter liegen — auch nicht der krumme Tagesrest. Aus 8,05 h wird deshalb
+**Mindestbuchung 0,6 h je WBS-Element und Tag.** CATS nimmt kleinere Zeiten nicht an
+(0,58 h wurde abgelehnt), also darf keine Zeile darunter liegen — auch nicht der
+krumme Tagesrest. Aus 8,05 h wird deshalb
 `4,00 + 2,00 + 1,05 + 1,00` statt einer Zeile mit 0,05 h. Ebenso entfallen
-Projektanteile und ungebuchte Zeit, die anteilig unter 0,5 h fielen; ihre Stunden
+Projektanteile und ungebuchte Zeit, die anteilig unter 0,6 h fielen; ihre Stunden
 gehen dann in die gewichtete Verteilung. Die Zuordnung wird dadurch etwas gröber,
 dafür ist die Datei einspielbar.
 
@@ -301,6 +302,27 @@ Zeitraums liefert identische Zeilen.
 `(user, datum, wbs_element) → stunden, berechnungslauf, exported_at, export_id`
 
 Sie ist der eigentliche Bestand, nicht die XLSX. Die XLSX ist nur eine Sicht darauf.
+
+**Die Zieltabelle zeigt den offenen Bestand.** Eine exportierte Zeile ist gebucht und
+damit erledigt; sie verschwindet aus der Anzeige. Sonst mischte sich der Inhalt eines
+abgeschlossenen Imports mit dem eines neuen und die Wochenansicht wäre nicht mehr zu
+lesen. Nach einem Export über den ganzen Bestand ist die Zieltabelle leer. Daraus
+folgt:
+
+- Ausgeblendet wird nicht nur die Zeile, sondern auch die erfasste Zeit, die zu ihr
+  gehört — sonst taucht die exportierte Stunde als „nicht gebucht" wieder auf.
+  Gerechnet wird das je **Tag**, damit eine halb exportierte Woche stimmt: ein Tag,
+  dessen Zeilen alle exportiert sind, fällt heraus; ein Tag mit exportierten *und*
+  offenen Zeilen bringt nur den Rest seiner erfassten Stunden mit.
+- Ein Tag ohne jede Zeile bleibt stehen: er ist nicht abgearbeitet, sondern besteht
+  ausschließlich aus nicht gebuchter Zeit.
+- Eine Woche, von der danach nichts übrig bleibt, verschwindet. Bei einer
+  angebrochenen Woche nennt die Kopfzeile die Zahl der ausgeblendeten Zeilen, damit
+  es nicht so aussieht, als fehle die halbe Woche.
+
+Gelöscht wird nichts: *exportierte Zeilen einblenden* zeigt den vollen Bestand,
+die Export-Historie sowieso, und die Rücknahme eines Exports holt die Zeilen zurück
+in den offenen Bestand.
 
 **Buchungsstatus und Export-Verweis sind bewusst getrennt.** `exported_at` sagt, ob
 eine Zeile bereits nach SAP gegangen ist; `export_id` verweist auf den Datensatz des
@@ -442,8 +464,8 @@ Login (SAML oder lokal)
        └─ Vorschau: erkannte Tage, ausgeschlossene Tage mit Grund
        └─ Klärfälle: unbekannte Gründe + fehlende Buchungen abarbeiten
        └─ Übernehmen
-  └─ Zieltabelle: nach Woche gruppiert, Soll/Ist-Gewichtung je Woche,
-       Status offen/exportiert, Zeitraum wählen → XLSX
+  └─ Zieltabelle: offener Bestand, nach Woche gruppiert, Soll/Ist-Gewichtung
+       je Woche, Zeitraum wählen → XLSX; exportierte Zeilen auf Wunsch einblenden
   └─ Historie: erzeugte Exporte (Download, zurücknehmen, löschen)
        └─ Änderungsprotokoll ersetzter Zeilen, löschbar
   └─ Datenschutz: Speicherung ein/aus, Bestand einsehen und löschen,

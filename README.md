@@ -49,7 +49,7 @@ Tage ab- oder zuwählen, fehlende Tage ergänzen. Was angepasst wurde, ist als s
 gekennzeichnet.
 
 **Verteilen.** Die Stunden werden je ISO-Woche auf die WBS-Elemente verteilt, in
-möglichst groben Blöcken (4 h vor 2 h vor 1 h), keine Zeile unter 0,5 h — darunter
+möglichst groben Blöcken (4 h vor 2 h vor 1 h), keine Zeile unter 0,6 h — darunter
 lehnt CATS die Buchung ab. Dabei gibt es zwei Gruppen:
 **Projekte** mit einer festen Obergrenze in Stunden je Woche werden zuerst bedient,
 **Operations** teilen sich nach Gewichtung, was übrig bleibt. Jede Woche sieht anders
@@ -61,9 +61,14 @@ vor allem anderen abgezogen und tauchen in der XLSX nicht auf; die exportierte
 Stundensumme ist dann entsprechend kleiner als der Zeitnachweis.
 
 **Buchhaltung führen.** Die Zieltabelle liegt in der Datenbank, nicht in der Datei.
-Exportierte Zeilen sind markiert, ein korrigiertes PDF für einen bereits gebuchten
-Zeitraum verlangt eine ausdrückliche Bestätigung, und die ersetzte Fassung bleibt in
-der Historie einsehbar.
+Sie zeigt, was noch zu exportieren ist: exportierte Zeilen sind gebucht und
+verschwinden aus der Ansicht, nach einem vollständigen Export ist sie leer. Der
+nächste Import fängt damit auf einer sauberen Fläche an, statt sich mit dem
+Vorgänger zu mischen. Verloren geht nichts — ein Schalter blendet die exportierten
+Zeilen wieder ein, und die Rücknahme eines Exports holt sie in den offenen Bestand
+zurück. Ein korrigiertes PDF für einen bereits gebuchten Zeitraum verlangt eine
+ausdrückliche Bestätigung, und die ersetzte Fassung bleibt in der Historie
+einsehbar.
 
 ![Zieltabelle mit Soll/Ist je Woche](docs/screenshots/03-zieltabelle.png)
 
@@ -180,8 +185,9 @@ WBS-Arbeitsvorrat eintragen.
    unter die Mindestbuchung rutscht.
 2. **Import** — Zeitnachweis-PDF hochladen. Die Vorschau zeigt jeden Tag mit Status.
    Klärfälle abarbeiten, übernehmen.
-3. **Zieltabelle** — nach Woche gruppiert, mit Soll/Ist-Vergleich je WBS-Element.
-   Zeitraum wählen, als XLSX exportieren.
+3. **Zieltabelle** — der offene Bestand, nach Woche gruppiert, mit Soll/Ist-Vergleich
+   je WBS-Element. Zeitraum wählen, als XLSX exportieren; danach ist der exportierte
+   Teil erledigt und aus der Ansicht verschwunden.
 4. **Historie** — erzeugte Dateien erneut herunterladen, einen Export zurücknehmen
    (falls er nicht in SAP angekommen ist) oder die Historie aufräumen. Aufräumen
    ändert den Buchungsstatus nicht: was einmal gebucht wurde, geht nicht versehentlich

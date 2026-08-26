@@ -98,6 +98,9 @@ export interface EntriesResponse {
   recorded_hours: number
   unbooked_hours: number
   open_hours: number
+  /** Bereits exportierte Zeilen, die hier nicht mitgeliefert werden. */
+  hidden_exported_rows: number
+  only_open: boolean
 }
 
 export interface ExportRecord {

@@ -35,7 +35,8 @@ MIN_SLICE_HOURS = 1.0
 # Harte Untergrenze. CATS nimmt kleinere Buchungen nicht an, deshalb darf
 # keine Zeile darunter liegen -- auch nicht der krumme Tagesrest. Die
 # Zuordnung wird dadurch etwas groeber, dafuer ist die Datei einspielbar.
-MIN_BOOKABLE_HOURS = 0.5
+# 0,58 h wurde von CATS abgelehnt, 0,6 h ging durch.
+MIN_BOOKABLE_HOURS = 0.6
 # Bezugsgroesse fuer die anteilige Kuerzung der Projekt- und Verwaltungsstunden.
 FULL_WEEK_DAYS = 5
 

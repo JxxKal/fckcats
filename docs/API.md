@@ -120,7 +120,7 @@ Das ältere Feld `clarifications` wird weiterhin akzeptiert und mit `adjustments
 zusammengeführt.
 
 - `hours: null` übernimmt den Wert aus dem PDF; ein eigener Wert wird als `manual`
-  gekennzeichnet und muss mindestens **0,5 h** betragen, sonst **400**.
+  gekennzeichnet und muss mindestens **0,6 h** betragen, sonst **400**.
 - `action: "exclude"` entfernt den Tag auch dann, wenn er aus einem früheren Import
   noch gespeichert ist.
 - Ein Datum, das im PDF gar nicht vorkommt, wird als zusätzlicher Tag angelegt.
@@ -138,6 +138,13 @@ PDF abdeckt, die aber nicht gebucht werden.
 Die Antwort weist neben den gebuchten Stunden (`total_hours`) auch die erfassten
 (`recorded_hours`) und die Differenz (`unbooked_hours`) aus, je Woche und in der
 Summe.
+
+Voreingestellt ist `only_open=true`: bereits exportierte Zeilen bleiben draußen, die
+Zieltabelle zeigt den offenen Bestand. Mit ihnen entfällt die erfasste Zeit, die zu
+ihnen gehört — tagesgenau, damit `unbooked_hours` einer halb exportierten Woche
+stimmt. Wochen, von denen danach nichts übrig bleibt, tauchen nicht mehr auf.
+`hidden_exported_rows` nennt die Zahl der ausgeblendeten Zeilen, je Woche steht sie
+in `exported_rows`. Mit `only_open=false` kommt der volle Bestand zurück.
 
 | `GET` | `/api/entries/workdays` | Validierte Tagesliste |
 | `POST` | `/api/entries/recalculate` | Offene Zeilen neu verteilen |

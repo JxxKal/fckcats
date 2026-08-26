@@ -12,20 +12,27 @@ export default function EntriesPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  /** Die Zieltabelle zeigt den offenen Bestand; Exportiertes ist erledigt. */
+  const [showExported, setShowExported] = useState(false)
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => { void load() }, [showExported])
 
-  async function load() {
+  /** reseed: Zeitraum dem folgen lassen, was noch offen ist. */
+  async function load(reseed = false) {
     const [entries, config] = await Promise.all([
-      api.get<EntriesResponse>('/api/entries'),
+      api.get<EntriesResponse>(`/api/entries?only_open=${!showExported}`),
       api.get<CatsConfig>('/api/cats-config'),
     ])
     setData(entries)
     setCfg(config)
     const dates = entries.weeks.flatMap(w => w.rows.filter(r => !r.exported).map(r => r.work_date))
-    if (dates.length) {
-      setFrom(prev => prev || dates.reduce((a, b) => (a < b ? a : b)))
-      setTo(prev => prev || dates.reduce((a, b) => (a > b ? a : b)))
+    const min = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : ''
+    const max = dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : ''
+    if (reseed) {
+      // Nach einem Export ist der alte Zeitraum abgearbeitet.
+      setFrom(min); setTo(max)
+    } else {
+      setFrom(prev => prev || min); setTo(prev => prev || max)
     }
   }
 
@@ -35,7 +42,7 @@ export default function EntriesPage() {
       const res = await api.post<{ export_id: number; filename: string; row_count: number; download_url: string }>(
         `/api/exports?date_from=${from}&date_to=${to}`)
       await api.download(res.download_url, res.filename)
-      await load()
+      await load(true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Export fehlgeschlagen')
     } finally {
@@ -102,8 +109,23 @@ export default function EntriesPage() {
     return (
       <div className="panel max-w-2xl">
         <div className="panel-head">Zieltabelle</div>
-        <div className="panel-body text-cats-muted">
-          Noch keine Zeilen vorhanden. Lade zuerst einen Zeitnachweis hoch.
+        <div className="panel-body text-cats-muted space-y-2">
+          {data.hidden_exported_rows > 0 ? (
+            <>
+              <p>
+                Alles exportiert — {data.hidden_exported_rows}{' '}
+                {data.hidden_exported_rows === 1 ? 'Zeile ist' : 'Zeilen sind'} gebucht
+                und damit erledigt. Der nächste Import füllt die Zieltabelle wieder.
+              </p>
+              <p>
+                Nachzusehen sind sie in der <em>Historie</em>; wer sie zurückholen will,
+                nimmt dort den Export zurück.
+              </p>
+              <ShowExported value={showExported} onChange={setShowExported} />
+            </>
+          ) : (
+            <p>Noch keine Zeilen vorhanden. Lade zuerst einen Zeitnachweis hoch.</p>
+          )}
         </div>
       </div>
     )
@@ -126,15 +148,18 @@ export default function EntriesPage() {
             Als XLSX exportieren
           </button>
           <button className="btn" disabled={busy} onClick={recalc}>Offene Zeilen neu verteilen</button>
+          <ShowExported value={showExported} onChange={setShowExported} />
           <div className="ml-auto flex gap-6">
             <div>
               <div className="label">offen</div>
               <div className="num text-lg">{fmtHours(data.open_hours)} h</div>
             </div>
-            <div>
-              <div className="label">gebucht</div>
-              <div className="num text-lg">{fmtHours(data.total_hours)} h</div>
-            </div>
+            {showExported && (
+              <div>
+                <div className="label">gebucht</div>
+                <div className="num text-lg">{fmtHours(data.total_hours)} h</div>
+              </div>
+            )}
             {data.unbooked_hours > 0 && (
               <div>
                 <div className="label">nicht gebucht</div>
@@ -170,10 +195,10 @@ export default function EntriesPage() {
               </span>
               {week.exported_rows > 0 && (
                 <span className="font-normal text-cats-muted">
-                  · {week.exported_rows} exportiert
+                  · {week.exported_rows} exportiert{showExported ? '' : ' und ausgeblendet'}
                 </span>
               )}
-              {week.open_rows === 0 && (
+              {showExported && week.open_rows === 0 && (
                 <span className="ml-auto font-normal text-cats-muted">vollständig exportiert</span>
               )}
             </button>
@@ -281,5 +306,15 @@ export default function EntriesPage() {
         )
       })}
     </div>
+  )
+}
+
+/** Schalter für den Blick auf den bereits exportierten Bestand. */
+function ShowExported({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 text-cats-muted">
+      <input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} />
+      exportierte Zeilen einblenden
+    </label>
   )
 }

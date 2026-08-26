@@ -12,6 +12,7 @@ from deps import get_current_user
 from keys import get_dek
 from recalc import recalculate
 from routers.cats import load_config, plan_from_config
+from weekview import group_by_week
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
@@ -20,81 +21,31 @@ router = APIRouter(prefix="/api/entries", tags=["entries"])
 async def list_entries(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
-    only_open: bool = Query(default=False),
+    only_open: bool = Query(
+        default=True,
+        description="Exportierte Zeilen ausblenden -- die Zieltabelle zeigt, "
+                    "was noch zu exportieren ist",
+    ),
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
     dek: bytes = Depends(get_dek),
 ) -> dict:
+    """Die Zieltabelle ist der offene Bestand.
+
+    Exportierte Zeilen sind gebucht und damit erledigt; sie verschwinden hier,
+    sonst mischten sich die Zeilen eines abgeschlossenen Imports mit denen
+    eines neuen. Nachzusehen sind sie in der Export-Historie, zurueckzuholen
+    ueber die Ruecknahme des Exports. Mit ``only_open=false`` zeigt die Antwort
+    wieder alles.
+    """
     user_id = int(user["sub"])
-    rows = await store.load_entries(pool, user_id, dek, date_from, date_to, only_open)
-    workdays = {w["work_date"]: w for w in await store.load_workdays(pool, user_id, dek)}
-
-    weeks: dict[tuple[int, int], dict] = {}
-
-    def week_of(work_date) -> dict:
-        iso = work_date.isocalendar()
-        return weeks.setdefault((iso[0], iso[1]), {
-            "iso_year": iso[0],
-            "iso_week": iso[1],
-            "hours": 0.0,            # gebuchte Stunden
-            "recorded_hours": 0.0,   # laut Zeitnachweis erfasst
-            "days": set(),
-            "per_wbs": {},
-            "rows": [],
-            "open_rows": 0,
-            "exported_rows": 0,
-        })
-
-    # Zuerst die erfasste Zeit -- auch fuer Tage, von denen wegen ungebuchter
-    # Zeit gar keine Zeile uebrig blieb.
-    for work_date, day in workdays.items():
-        if date_from and work_date < date_from:
-            continue
-        if date_to and work_date > date_to:
-            continue
-        w = week_of(work_date)
-        w["recorded_hours"] = round(w["recorded_hours"] + float(day.get("hours") or 0), 2)
-
-    for r in rows:
-        week = week_of(r["work_date"])
-        hours = float(r["hours"])
-        week["hours"] = round(week["hours"] + hours, 2)
-        week["days"].add(r["work_date"])
-        week["per_wbs"][r["wbs_element"]] = round(
-            week["per_wbs"].get(r["wbs_element"], 0.0) + hours, 2
-        )
-        if r["exported_at"] is None:
-            week["open_rows"] += 1
-        else:
-            week["exported_rows"] += 1
-        day = workdays.get(r["work_date"], {})
-        week["rows"].append({
-            "work_date": r["work_date"].isoformat(),
-            "wbs_element": r["wbs_element"],
-            "hours": hours,
-            "exported": r["exported_at"] is not None,
-            "export_id": r["export_id"],
-            "exported_at": r["exported_at"].isoformat() if r["exported_at"] else None,
-            "day_hours": float(day["hours"]) if day.get("hours") is not None else None,
-            "day_source": day.get("source"),
-        })
-
-    out = []
-    for key in sorted(weeks):
-        w = weeks[key]
-        w["days"] = len(w["days"])
-        # Was erfasst, aber keinem WBS-Element zugeordnet wurde.
-        w["unbooked_hours"] = round(max(0.0, w["recorded_hours"] - w["hours"]), 2)
-        out.append(w)
-
+    # Bewusst alles laden, auch das Exportierte: die Sicht braucht dessen
+    # Stunden, um die erfasste Zeit des Tages richtig zu verrechnen.
+    rows = await store.load_entries(pool, user_id, dek, date_from, date_to)
+    workdays = await store.load_workdays(pool, user_id, dek)
     return {
-        "weeks": out,
-        "total_hours": round(sum(w["hours"] for w in out), 2),
-        "recorded_hours": round(sum(w["recorded_hours"] for w in out), 2),
-        "unbooked_hours": round(sum(w["unbooked_hours"] for w in out), 2),
-        "open_hours": round(
-            sum(r["hours"] for w in out for r in w["rows"] if not r["exported"]), 2
-        ),
+        **group_by_week(rows, workdays, only_open, date_from, date_to),
+        "only_open": only_open,
     }
 
 
